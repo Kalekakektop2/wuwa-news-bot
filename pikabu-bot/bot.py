@@ -287,7 +287,7 @@ def main() -> int:
     _setup_console()
     args = parse_args()
     token = env("PIKABU_BOT_TOKEN")
-    admin_id = env("PIKABU_ADMIN_ID", "7483400443")
+    admin_id = env("PIKABU_ADMIN_ID", "855159275")
     state_path = Path(env("PIKABU_STATE") or str(ROOT / "data" / "seen.json"))
     interval = max(60, int(env("POLL_INTERVAL_SECONDS", "300")))
 

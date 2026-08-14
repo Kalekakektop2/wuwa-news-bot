@@ -23,4 +23,4 @@
 В репозитории `wuwa-news-bot` стоит отдельный workflow `pikabu.yml`. Секреты:
 
 - `PIKABU_BOT_TOKEN`
-- `PIKABU_ADMIN_ID` — твой user id, по умолчанию `7483400443`
+- `PIKABU_ADMIN_ID` — твой user id, по умолчанию `855159275`
