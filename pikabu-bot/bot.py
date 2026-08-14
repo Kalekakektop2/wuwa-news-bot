@@ -24,6 +24,43 @@ OFFICIAL_PAGE = "https://wutheringwaves.kurogames.com/en/main/news/detail/{id}"
 TG_CHANNEL = "https://t.me/WuwaNewss"
 GITHUB_RUS = "https://github.com/Kalekakektop2/Wuwa3.5"
 FOOTER = "Актуальная информация всегда у нас в Telegram: https://t.me/WuwaNewss"
+PING = "Нужно залить пост на Пикабу. Копируй текст ниже и вставляй как есть."
+
+REWRITE_PROMPT = """
+Ты админ русскоязычного фан-канала по Wuthering Waves (вува).
+Пишешь живой пост, который человек просто скопирует и вставит на Пикабу.
+
+Тон — как в нашем Telegram-канале:
+- живой, спокойный, чуть разговорный
+- будто сам только что прочитал официалку и кидаешь людям
+- не пресс-служба и не машинный перевод
+- без кринжа, без «брооо», без канцелярита
+- можно «короче», «поставили», «завезут», «техработы»
+- 0–2 эмодзи, можно без них
+- без кучи хештегов
+- не называй себя ботом
+- не притворяйся официальным аккаунтом Kuro
+
+Факты:
+- ничего не выдумывай
+- даты, время, UTC+8, числа наград, имена — точно
+- имена резонаторов и оружия оставляй как в оригинале
+- астриты можно называть астритами
+
+Формат:
+- сразу суть, без вступления «разработчики объявили»
+- 4–10 коротких строк
+- длинные инструкции «как обновить клиент» не копируй
+- если техработы: когда, сколько, какая компенсация
+- если патч/превью: 5–8 главных пунктов
+- промокод, если есть, поставь отдельно и заметно
+- не пиши заголовок «Пост:», не пиши «теги», не пиши инструкции как публиковать
+- не пиши про Telegram и не ставь футер — его добавлю сам
+- в конце одна строка: источник — и URL официалки
+
+Верни только текст поста. Без кавычек и без пояснений.
+Не используй markdown-звёздочки.
+""".strip()
 
 WORTHY = [
     r"version preview",
@@ -104,7 +141,7 @@ def extract_version(article: dict) -> str:
     return match.group(1) if match else ""
 
 
-def build_draft(article: dict) -> str:
+def fallback_post(article: dict) -> str:
     version = extract_version(article)
     title_l = (article["title"] or "").lower()
     maint = first(r"Maintenance Time:\s*([^\n]+)", article["text"])
@@ -113,55 +150,92 @@ def build_draft(article: dict) -> str:
         r"(?:planned for release|scheduled for release|release(?: date)?)\s+on\s+([^\n.]+)",
         f"{article['title']}\n{article['text']}",
     )
-
+    lines: list[str] = []
     if "preview" in title_l:
-        heading = f"Wuthering Waves {version}: официальное превью".strip()
-        lead = "Вышло официальное превью следующей версии. Коротко, своими словами — без копипаста с сайта."
+        lines.append(f"вышло превью {version or 'новой версии'}".strip())
     elif "maintenance" in title_l:
-        heading = f"Wuthering Waves {version}: техработы по патчу".strip()
-        lead = "Поставили окно техработ перед патчем. Это обычное объявление Kuro, не слив."
+        lines.append(f"техработы по {version or 'патчу'}".strip())
     else:
-        heading = f"Wuthering Waves {version}: что завезут в патче".strip()
-        lead = "Вышел официальный список обновления. Ниже только то, что реально важно."
-
-    if not version:
-        heading = article["title"][:80]
-
-    body = [lead, ""]
+        lines.append(f"патч {version}".strip() if version else article["title"])
     if release:
-        body.append(f"Релиз: {release}.")
+        lines.append(f"релиз: {release}")
     if maint:
-        body.append(f"Окно техработ: {maint}")
+        lines.append(f"окно: {maint}")
     if comp:
-        body.append(f"Компенсация: {comp}")
-    body.extend(
-        [
-            "",
-            "Полный официальный текст лучше смотреть по ссылке, сюда его копировать не буду.",
-            f"Если нужен русский текст в игре — неофициальный русификатор и инструкция: {GITHUB_RUS}",
-            "",
-            f"Официалка: {article['url']}",
-        ]
-    )
+        lines.append(f"компенсация: {comp}")
+    lines.append("")
+    lines.append(f"источник — {article['url']}")
+    return "\n".join(lines).strip()
 
-    tags = ["wuthering waves", "вува", "wuwa", "новости", "игры"]
-    if version:
-        tags.append(f"вува {version}")
 
-    return "\n".join(
-        [
-            "Нужно залить пост на Пикабу.",
-            "",
-            f"Заголовок: {heading}",
-            "Теги: " + ", ".join(tags),
-            "Куда: игры / Wuthering Waves. Не Anime Art — туда только арты.",
-            "Как: @pikabu_publish_bot или сайт → новый пост.",
-            "",
-            "\n".join(body),
-            "",
-            FOOTER,
-        ]
+def rewrite_post(article: dict) -> str:
+    key = env("GEMINI_API_KEY")
+    if not key:
+        return fallback_post(article)
+
+    body = article["text"]
+    if len(body) > 7000:
+        body = body[:7000] + "\n\n[текст обрезан]"
+    user = (
+        f"Заголовок: {article['title']}\n"
+        f"Дата публикации (оф. сайт): {article.get('created_at') or 'не указана'}\n"
+        f"Ссылка: {article['url']}\n\n"
+        f"Официальный текст:\n{body}"
     )
+    base = env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
+    model = env("GEMINI_MODEL", "gemini-3.6-flash") or "gemini-3.6-flash"
+    if base.endswith("/v1beta") or base.endswith("/v1"):
+        url = f"{base}/models/{model}:generateContent"
+    else:
+        url = f"{base}/v1beta/models/{model}:generateContent"
+
+    payload = {
+        "system_instruction": {"parts": [{"text": REWRITE_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 2048,
+            "thinkingConfig": {"thinkingLevel": "minimal"},
+        },
+    }
+    try:
+        with httpx.Client(timeout=60) as client:
+            response = client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": key,
+                },
+                json=payload,
+            )
+        if response.status_code >= 400:
+            raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:300]}")
+        parts = (
+            response.json()
+            .get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [])
+        )
+        text = "".join(part.get("text", "") for part in parts).strip()
+        text = re.sub(r"^```(?:\w+)?\n|\n```$", "", text).strip()
+        if not text:
+            raise RuntimeError("пустой ответ Gemini")
+        if article["url"] not in text:
+            text = f"{text}\n\nисточник — {article['url']}"
+        return text
+    except Exception:
+        logger.exception("рерайт не вышел, беру живой каркас")
+        return fallback_post(article)
+
+
+def with_footer(text: str) -> str:
+    cleaned = text.strip()
+    cleaned = re.sub(r"(?:актуальная информация всегда у нас в telegram:[^\n]*)\s*$", "", cleaned, flags=re.I)
+    return f"{cleaned.rstrip()}\n\n{FOOTER}"
+
+
+def build_draft(article: dict) -> str:
+    return with_footer(rewrite_post(article))
 
 
 class SeenStore:
@@ -242,8 +316,7 @@ def poll_once(token: str, admin_id: str, store: SeenStore, *, force_latest: bool
                 logger.info("не для Пикабу, пропускаю %s: %s", article_id, article["title"])
                 continue
             text = build_draft(article)
-            if not text.endswith(FOOTER):
-                text = f"{text.rstrip()}\n\n{FOOTER}"
+            send_dm(token, admin_id, PING)
             send_dm(token, admin_id, text)
             store.mark(article_id)
             sent = True

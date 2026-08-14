@@ -19,6 +19,9 @@ jobs:
         env:
           PIKABU_BOT_TOKEN: ${{ secrets.PIKABU_BOT_TOKEN }}
           PIKABU_ADMIN_ID: ${{ secrets.PIKABU_ADMIN_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.6-flash
+          GEMINI_BASE_URL: https://generativelanguage.googleapis.com/v1beta
           PIKABU_STATE: state/pikabu.json
         run: python pikabu-bot/bot.py --once
       - name: Save seen ids
