@@ -24,20 +24,18 @@ OFFICIAL_PAGE = "https://wutheringwaves.kurogames.com/en/main/news/detail/{id}"
 TG_CHANNEL = "https://t.me/WuwaNewss"
 GITHUB_RUS = "https://github.com/Kalekakektop2/Wuwa3.5"
 FOOTER = "Актуальная информация всегда у нас в Telegram: https://t.me/WuwaNewss"
-PING = "Нужно залить пост на Пикабу. Копируй текст ниже и вставляй как есть."
-
 REWRITE_PROMPT = """
 Ты админ русскоязычного фан-канала по Wuthering Waves (вува).
-Пишешь живой пост, который человек просто скопирует и вставит на Пикабу.
+Нужен готовый пост на Пикабу: заголовок, теги и живой текст.
 
-Тон — как в нашем Telegram-канале:
+Тон текста — как в нашем Telegram-канале:
 - живой, спокойный, чуть разговорный
 - будто сам только что прочитал официалку и кидаешь людям
 - не пресс-служба и не машинный перевод
 - без кринжа, без «брооо», без канцелярита
 - можно «короче», «поставили», «завезут», «техработы»
 - 0–2 эмодзи, можно без них
-- без кучи хештегов
+- в тексте поста без кучи хештегов
 - не называй себя ботом
 - не притворяйся официальным аккаунтом Kuro
 
@@ -47,19 +45,30 @@ REWRITE_PROMPT = """
 - имена резонаторов и оружия оставляй как в оригинале
 - астриты можно называть астритами
 
-Формат:
+Заголовок:
+- по-русски, до 80 символов
+- живой, не канцелярия и не английский официальный title
+
+Теги:
+- 5–8 штук через запятую
+- обязательно: wuthering waves, вува, wuwa, новости, игры
+- плюс версия, если есть, например «вува 3.6»
+
+Текст:
 - сразу суть, без вступления «разработчики объявили»
 - 4–10 коротких строк
 - длинные инструкции «как обновить клиент» не копируй
 - если техработы: когда, сколько, какая компенсация
 - если патч/превью: 5–8 главных пунктов
 - промокод, если есть, поставь отдельно и заметно
-- не пиши заголовок «Пост:», не пиши «теги», не пиши инструкции как публиковать
 - не пиши про Telegram и не ставь футер — его добавлю сам
 - в конце одна строка: источник — и URL официалки
 
-Верни только текст поста. Без кавычек и без пояснений.
-Не используй markdown-звёздочки.
+Верни строго:
+TITLE: заголовок
+TAGS: тег1, тег2, тег3
+BODY:
+текст поста
 """.strip()
 
 WORTHY = [
@@ -141,6 +150,56 @@ def extract_version(article: dict) -> str:
     return match.group(1) if match else ""
 
 
+def default_tags(article: dict) -> str:
+    tags = ["wuthering waves", "вува", "wuwa", "новости", "игры"]
+    version = extract_version(article)
+    if version:
+        tags.append(f"вува {version}")
+    title_l = (article.get("title") or "").lower()
+    if "maintenance" in title_l:
+        tags.append("патч")
+    elif "preview" in title_l:
+        tags.append("превью")
+    return ", ".join(tags)
+
+
+def fallback_title(article: dict) -> str:
+    version = extract_version(article)
+    title_l = (article["title"] or "").lower()
+    if "preview" in title_l:
+        return f"Wuthering Waves {version}: официальное превью".strip()
+    if "maintenance" in title_l:
+        return f"Wuthering Waves {version}: техработы по патчу".strip()
+    if version:
+        return f"Wuthering Waves {version}: что завезут в патче"
+    return (article["title"] or "Wuthering Waves")[:80]
+
+
+def fallback_draft(article: dict) -> dict[str, str]:
+    return {
+        "title": fallback_title(article),
+        "tags": default_tags(article),
+        "body": fallback_post(article),
+    }
+
+
+def parse_model_draft(raw: str, article: dict) -> dict[str, str]:
+    title = first(r"^TITLE:\s*(.+)$", raw) or fallback_title(article)
+    tags = first(r"^TAGS:\s*(.+)$", raw) or default_tags(article)
+    body_match = re.search(r"^BODY:\s*(.*)$", raw, re.I | re.S | re.M)
+    body = (body_match.group(1).strip() if body_match else raw).strip()
+    body = re.sub(r"^(TITLE|TAGS|BODY):.*$", "", body, flags=re.I | re.M).strip()
+    if not body:
+        body = fallback_post(article)
+    if article["url"] not in body:
+        body = f"{body}\n\nисточник — {article['url']}"
+    return {
+        "title": title[:80],
+        "tags": tags,
+        "body": body,
+    }
+
+
 def fallback_post(article: dict) -> str:
     version = extract_version(article)
     title_l = (article["title"] or "").lower()
@@ -168,10 +227,10 @@ def fallback_post(article: dict) -> str:
     return "\n".join(lines).strip()
 
 
-def rewrite_post(article: dict) -> str:
+def rewrite_post(article: dict) -> dict[str, str]:
     key = env("GEMINI_API_KEY")
     if not key:
-        return fallback_post(article)
+        return fallback_draft(article)
 
     body = article["text"]
     if len(body) > 7000:
@@ -220,12 +279,10 @@ def rewrite_post(article: dict) -> str:
         text = re.sub(r"^```(?:\w+)?\n|\n```$", "", text).strip()
         if not text:
             raise RuntimeError("пустой ответ Gemini")
-        if article["url"] not in text:
-            text = f"{text}\n\nисточник — {article['url']}"
-        return text
+        return parse_model_draft(text, article)
     except Exception:
         logger.exception("рерайт не вышел, беру живой каркас")
-        return fallback_post(article)
+        return fallback_draft(article)
 
 
 def with_footer(text: str) -> str:
@@ -234,8 +291,22 @@ def with_footer(text: str) -> str:
     return f"{cleaned.rstrip()}\n\n{FOOTER}"
 
 
-def build_draft(article: dict) -> str:
-    return with_footer(rewrite_post(article))
+def build_header(draft: dict[str, str]) -> str:
+    return "\n".join(
+        [
+            "Нужно залить пост на Пикабу.",
+            "",
+            f"Заголовок: {draft['title']}",
+            f"Теги: {draft['tags']}",
+            "",
+            "Текст ниже — копируй и вставляй как есть.",
+        ]
+    )
+
+
+def build_draft(article: dict) -> tuple[str, str]:
+    draft = rewrite_post(article)
+    return build_header(draft), with_footer(draft["body"])
 
 
 class SeenStore:
@@ -315,8 +386,8 @@ def poll_once(token: str, admin_id: str, store: SeenStore, *, force_latest: bool
                 store.mark(article_id)
                 logger.info("не для Пикабу, пропускаю %s: %s", article_id, article["title"])
                 continue
-            text = build_draft(article)
-            send_dm(token, admin_id, PING)
+            header, text = build_draft(article)
+            send_dm(token, admin_id, header)
             send_dm(token, admin_id, text)
             store.mark(article_id)
             sent = True
@@ -336,7 +407,9 @@ def preview_latest() -> None:
             article = parse_article(fetch_article(client, str(item["articleId"])), item)
             if not is_worthy(article):
                 continue
-            text = build_draft(article)
+            header, text = build_draft(article)
+            print(header)
+            print()
             print(text)
             if not text.strip().endswith(FOOTER):
                 raise RuntimeError("в черновике нет обязательной строки про Telegram")
