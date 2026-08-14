@@ -1,0 +1,15 @@
+name: wuwa-poll
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Cloudflare Worker
+        env:
+          URL: ${{ secrets.WUWA_RUN_URL }}
+        run: |
+          if [ -z "$URL" ]; then echo "WUWA_RUN_URL secret missing"; exit 1; fi
+          curl -fsS --max-time 60 "$URL"
