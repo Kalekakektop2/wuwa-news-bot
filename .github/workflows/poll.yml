@@ -7,9 +7,23 @@ jobs:
   poll:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Ping Cloudflare Worker
         env:
           URL: ${{ secrets.WUWA_RUN_URL }}
         run: |
           if [ -z "$URL" ]; then echo "WUWA_RUN_URL secret missing"; exit 1; fi
-          curl -fsS --max-time 60 "$URL"
+          curl -fsS --max-time 90 "$URL" | tee worker.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Publish to DTF if Telegram posted
+        env:
+          DTF_TOKEN: ${{ secrets.DTF_TOKEN }}
+          DTF_USER_ID: ${{ secrets.DTF_USER_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.6-flash
+          GEMINI_BASE_URL: https://generativelanguage.googleapis.com/v1beta
+        run: |
+          pip install -q -r dtf/requirements.txt
+          python dtf/publish.py --from-worker worker.json
