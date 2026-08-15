@@ -4,10 +4,12 @@ import argparse
 import html
 import json
 import os
+import random
 import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+
 import httpx
 from dotenv import load_dotenv
 
@@ -151,25 +153,85 @@ def html_to_text(raw: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def fetch_official_art(client: httpx.Client, used: set[str]) -> tuple[str, str] | None:
+IMG_SRC = re.compile(r"src=[\"'](https?://[^\"']+\.(?:jpg|jpeg|png|webp))[\"']", re.I)
+VISUAL_TITLES = re.compile(
+    r"wallpaper|version preview|profile reveal|resonator reveal|update content|upcoming events",
+    re.I,
+)
+SKIP_TITLES = (
+    "fan creation event winners",
+    "premium model set",
+    "maintenance notice",
+    "convene details",
+    "faq",
+)
+
+
+def collect_art_pool(client: httpx.Client, state: State) -> list[tuple[str, str]]:
+    cached = state.data.get("art_pool") or []
+    cached_at = state.data.get("art_pool_at")
+    if cached and cached_at:
+        try:
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(cached_at)
+            if age < timedelta(hours=12) and len(cached) >= 6:
+                return [(item["url"], item["title"]) for item in cached]
+        except ValueError:
+            pass
+
     menu = client.get(f"{OFFICIAL_BASE}/ArticleMenu.json?t={int(now_utc8().timestamp())}")
     menu.raise_for_status()
-    skip = ("fan creation event winners", "premium model set")
+    candidates = []
     for item in menu.json():
         title = str(item.get("articleTitle") or "")
-        if any(word in title.lower() for word in skip):
+        low = title.lower()
+        if any(word in low for word in SKIP_TITLES):
             continue
-        if not re.search(r"wallpaper|version preview|profile reveal|resonator reveal", title, re.I):
+        if not VISUAL_TITLES.search(title):
             continue
+        if item.get("articleId"):
+            candidates.append(item)
+        if len(candidates) >= 20:
+            break
+
+    pool: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in candidates:
+        title = str(item.get("articleTitle") or "").strip()
         cover = str(item.get("suggestCover") or "")
-        if cover.startswith("http") and cover not in used:
-            return cover, title
-    for item in menu.json():
-        cover = str(item.get("suggestCover") or "")
-        title = str(item.get("articleTitle") or "")
-        if cover.startswith("http") and cover not in used and title:
-            return cover, title
-    return None
+        urls = []
+        if cover.startswith("http"):
+            urls.append(cover)
+        try:
+            raw = client.get(
+                f"{OFFICIAL_BASE}/article/{item['articleId']}.json?t={int(now_utc8().timestamp())}"
+            ).json()
+            html_body = raw.get("articleContent") or ""
+            urls.extend(IMG_SRC.findall(html_body))
+        except Exception:
+            continue
+        for url in urls:
+            if url in seen or "emoji" in url.lower():
+                continue
+            seen.add(url)
+            pool.append((url, title))
+
+    if pool:
+        state.data["art_pool"] = [{"url": url, "title": title} for url, title in pool]
+        state.data["art_pool_at"] = datetime.now(timezone.utc).isoformat()
+    return pool
+
+
+def pick_random_art(client: httpx.Client, state: State) -> tuple[str, str] | None:
+    pool = collect_art_pool(client, state)
+    if not pool:
+        return None
+    recent = set((state.data.get("images") or [])[-12:])
+    choices = [item for item in pool if item[0] not in recent] or pool
+    picked = random.choice(choices)
+    used = state.data.setdefault("images", [])
+    used.append(picked[0])
+    state.data["images"] = used[-40:]
+    return picked
 
 
 def active_banners(calendar: dict, today: date) -> list[dict]:
@@ -218,25 +280,6 @@ def build_calendar_text(calendar: dict, today: date, *, week: bool = False) -> s
         for item in coming:
             when = "завтра" if item["in"] == 1 else f"через {ru_days(item['in'])}"
             lines.append(f"— {item['name']} ({item['phase']}), {when}")
-
-    maint = calendar.get("maintenance") or {}
-    if maint.get("start"):
-        start = parse_dt(maint["start"])
-        if today <= start.date():
-            lines.append("")
-            if today == start.date():
-                lines.append(
-                    f"сегодня техработы {maint.get('version', '')}: "
-                    f"{start.strftime('%H:%M')}–{parse_dt(maint['end']).strftime('%H:%M')} UTC+8"
-                )
-            else:
-                left = (start.date() - today).days
-                lines.append(
-                    f"техработы {maint.get('version', '')} — {start.strftime('%d.%m')}, "
-                    f"через {ru_days(left)}, окно {start.strftime('%H:%M')} UTC+8"
-                )
-            if maint.get("compensation"):
-                lines.append(f"компенсация: {maint['compensation']}")
 
     pred = calendar.get("predownload") or {}
     if pred.get("start"):
@@ -292,8 +335,54 @@ def build_rus_text(version: str) -> str:
     )
 
 
-def build_art_caption(title: str) -> str:
-    return f"официальный арт\n{title}\n\nне наш рисунок, просто красиво"
+def maintenance_start(calendar: dict) -> tuple[dict, datetime] | None:
+    maint = calendar.get("maintenance") or {}
+    if not maint.get("start"):
+        return None
+    start = parse_dt(maint["start"])
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=UTC8)
+    return maint, start
+
+
+def maintenance_due(calendar: dict, state: State, now: datetime | None = None) -> dict | None:
+    parsed = maintenance_start(calendar)
+    if not parsed:
+        return None
+    maint, start = parsed
+    moment = now or now_utc8()
+    key = f"{maint.get('version', '')}|{start.isoformat()}"
+    if (state.data.get("last") or {}).get("maintenance") == key:
+        return None
+    delta = start - moment
+    if timedelta(minutes=10) < delta <= timedelta(minutes=80):
+        return {**maint, "start_dt": start, "key": key}
+    return None
+
+
+def build_maintenance_text(maint: dict) -> str:
+    start: datetime = maint["start_dt"]
+    end_raw = maint.get("end")
+    window = start.strftime("%H:%M")
+    if end_raw:
+        end = parse_dt(end_raw)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC8)
+        window = f"{start.strftime('%H:%M')}–{end.strftime('%H:%M')}"
+    lines = [
+        f"через час техработы {maint.get('version', '')}".strip(),
+        "",
+        f"окно: {window} UTC+8",
+    ]
+    if maint.get("compensation"):
+        lines.append(f"компенсация: {maint['compensation']}")
+    lines.extend(
+        [
+            "",
+            "в игру не пустит, почту лучше проверить заранее",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def send_telegram(text: str, image_url: str | None = None) -> None:
@@ -359,8 +448,11 @@ def decide(slot: str, calendar: dict, roster: dict, state: State) -> dict:
         if today.weekday() == 6:
             return {"kind": "calendar", "week": True, "slot": slot}
         day_index = today.toordinal()
-        rotate = ["character", "echo", "art", "character"]
+        rotate = ["character", "echo", "character", "echo"]
         return {"kind": rotate[day_index % 4], "slot": slot}
+
+    if slot == "maintenance":
+        return {"kind": "maintenance", "slot": slot}
 
     return {"kind": "calendar", "slot": slot}
 
@@ -369,10 +461,17 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
     calendar = load_json(ROOT / "data" / "calendar.json")
     roster = load_json(ROOT / "data" / "roster.json")
     state = State(Path(env("DAILY_STATE") or str(REPO / "state" / "daily.json")))
-    plan = decide(slot, calendar, roster, state)
-    if plan.get("skip"):
-        print(plan["reason"])
-        return 0
+    due = maintenance_due(calendar, state)
+    if slot == "maintenance":
+        if not due:
+            print("до техработ ещё рано или уже писали")
+            return 0
+        plan = {"kind": "maintenance", "slot": "maintenance"}
+    else:
+        plan = decide(slot, calendar, roster, state)
+        if plan.get("skip"):
+            print(plan["reason"])
+            return 0
 
     text = ""
     image = None
@@ -380,7 +479,13 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
     headers = {"user-agent": "wuwa-daily/1.0"}
 
     with httpx.Client(timeout=25, headers=headers, follow_redirects=True) as client:
-        if kind == "codes_or_calendar":
+        art = pick_random_art(client, state)
+        if art:
+            image = art[0]
+        if kind == "maintenance" and due:
+            text = build_maintenance_text(due)
+            state.data.setdefault("last", {})["maintenance"] = due["key"]
+        elif kind == "codes_or_calendar":
             codes = []
             try:
                 codes.extend(fetch_official_codes(client))
@@ -413,17 +518,6 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
                 used = state.data.setdefault("cards", [])
                 used.append(card["key"])
                 state.data["cards"] = used[-80:]
-        elif kind == "art":
-            art = fetch_official_art(client, set(state.data.get("images") or []))
-            if not art:
-                card = pick_card(roster, state, "character")
-                text = build_card_text(card, "character") if card else build_calendar_text(calendar, now_utc8().date())
-                if card:
-                    state.data.setdefault("cards", []).append(card["key"])
-            else:
-                image, title = art
-                text = build_art_caption(title)
-                state.data.setdefault("images", []).append(image)
 
     print(f"slot={slot} kind={kind}\n{text}")
     if image:
@@ -432,7 +526,8 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
         return 0
 
     send_telegram(text, image)
-    state.data.setdefault("last", {})[slot] = now_utc8().date().isoformat()
+    if slot != "maintenance":
+        state.data.setdefault("last", {})[slot] = now_utc8().date().isoformat()
     state.save()
     print("sent")
     return 0
@@ -447,7 +542,7 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Daily WuWa channel content")
-    parser.add_argument("--slot", choices=["morning", "evening", "auto"], default="auto")
+    parser.add_argument("--slot", choices=["morning", "evening", "maintenance", "auto"], default="auto")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true", help="игнорировать лимит 1 пост на слот")
     args = parser.parse_args()

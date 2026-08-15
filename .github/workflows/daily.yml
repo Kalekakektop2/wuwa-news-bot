@@ -3,10 +3,11 @@ on:
   schedule:
     - cron: "0 6 * * *"
     - cron: "0 16 * * *"
+    - cron: "20 * * * *"
   workflow_dispatch:
     inputs:
       slot:
-        description: "morning, evening or auto"
+        description: "morning, evening, maintenance or auto"
         required: false
         default: auto
 jobs:
@@ -27,7 +28,12 @@ jobs:
         run: |
           pip install -q -r daily/requirements.txt
           SLOT="${{ github.event.inputs.slot }}"
-          if [ -z "$SLOT" ]; then SLOT=auto; fi
+          CRON="${{ github.event.schedule }}"
+          if [ -z "$SLOT" ]; then
+            if [ "$CRON" = "20 * * * *" ]; then SLOT=maintenance
+            else SLOT=auto
+            fi
+          fi
           python daily/poster.py --slot "$SLOT"
       - name: Save daily state
         run: |
