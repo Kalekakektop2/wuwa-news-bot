@@ -13,28 +13,28 @@ load_dotenv(ROOT / ".env")
 
 TIERS = [
     ("S+", "#d4a017", [
-        "Shorekeeper", "Cartethyia", "Phrolova", "Aemeath",
-        "Yangyang: Xuanling", "Camellya", "Augusta", "Mornye",
-        "Suisui", "Hiyuki", "Denia", "Lynae", "Luuk Herssen",
-        "Chisa", "Iuno", "Sigrika",
+        "Береговой сторож", "Картетия", "Фролова", "Эймит",
+        "Янъян: Сюаньлин", "Камелия", "Августа", "Морни",
+        "Суйсуй", "Хиюки", "Дения", "Линаи", "Луук Херссен",
+        "Чиса", "Юно", "Сигрика",
     ]),
     ("S", "#e07b39", [
-        "Jiyan", "Jinhsi", "Zani", "Carlotta", "Lucilla", "Lucy",
-        "Phoebe", "Verina", "Lupa", "Sanhua", "Cantarella",
-        "Qiuyuan", "Galbrena", "Brant", "Rebecca", "Changli",
-        "Ciaccona",
+        "Цзиянь", "Цзиньси", "Зани", "Карлотта", "Луцилла", "Люси",
+        "Фиби", "Верина", "Лупа", "Саньхуа", "Кантарелла",
+        "Цююань", "Галбрена", "Брант", "Ребекка", "Чанли",
+        "Чаккона",
     ]),
     ("A", "#3d9b6e", [
-        "Xiangli Yao", "Roccia", "Zhezhi", "Encore",
-        "Rover Havoc", "Rover Aero", "Buling", "Baizhi",
+        "Сянли Яо", "Рочча", "Чжэчжи", "Энкор",
+        "Ровер (Хавок)", "Ровер (Аэро)", "Булинь", "Байчжи",
     ]),
     ("B", "#3a7ca5", [
-        "Calcharo", "Jianxin", "Mortefi", "Rover Electro",
-        "Yinlin", "Danjin", "Chixia", "Rover Spectro",
+        "Калкаро", "Цзяньсинь", "Мортэфи", "Ровер (Электро)",
+        "Иньлинь", "Даньцзинь", "Чися", "Ровер (Спектро)",
     ]),
     ("C", "#7a7a7a", [
-        "Yuanwu", "Lingyang", "Aalto", "Youhu", "Yangyang",
-        "Taoqi", "Lumi",
+        "Юаньу", "Линъян", "Аальто", "Юху", "Янъян",
+        "Таоци", "Люми",
     ]),
     ("D", "#6b5344", []),
     ("E", "#4a4a4a", []),
@@ -100,9 +100,8 @@ def render() -> bytes:
     draw = ImageDraw.Draw(img)
     draw.rectangle((0, 0, width, 8), fill="#d4a017")
     draw.text((pad, 28), "Wuthering Waves — тир-лист", font=title_f, fill="#f4f1ea")
-    draw.text((pad, 82), "август 2026  ·  ToA + WhiWa  ·  Wutheringlab", font=sub_f, fill="#b7b3aa")
-    draw.text((pad, 112), "не официалка Kuro  ·  Qingxiao / Jingran ещё не в списке", font=sub_f, fill="#8d897f")
-    y = 160
+    draw.text((pad, 82), "август 2026", font=sub_f, fill="#b7b3aa")
+    y = 130
     for letter, color, lines in rows:
         box_h = 20 + len(lines) * 32
         draw.rounded_rectangle((pad, y, width - pad, y + box_h), radius=10, fill="#1c2028")
@@ -119,29 +118,42 @@ def render() -> bytes:
     return out.getvalue()
 
 
-CAPTION = """тир-лист персонажей вувы, август 2026
+def quoted(names: list[str]) -> str:
+    if not names:
+        return "никого"
+    return ", ".join(names)
 
-взял актуальный лист Wutheringlab от 15.08 — туда уже добавили Suisui.
-считают ToA и Whimpering Wastes вместе.
-ранги у них SS–C, я сжал в S+ / S / A / B / C. D и E пустые — на этом листе ниже C никого нет.
 
-это мнение гайдеров, не таблица Kuro.
-в 3.6 Qingxiao и Jingran ещё не стоят — список перепишут после патча.
-
-источник — https://wutheringlab.com/wuthering-waves-tier-list/"""
+def build_caption() -> str:
+    lines = ["тир-лист персонажей вувы, август 2026", ""]
+    for letter, _color, names in TIERS:
+        lines.append(f'{letter}-"{quoted(names)}"')
+    lines.extend(
+        [
+            "",
+            "источник — https://wutheringlab.com/wuthering-waves-tier-list/",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def main() -> int:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat = os.getenv("TELEGRAM_CHANNEL_ID", "").strip()
     photo = render()
+    caption = build_caption()
     (ROOT / "daily" / "_tier.jpg").write_bytes(photo)
     with httpx.Client(timeout=90) as client:
         data = client.post(
             f"https://api.telegram.org/bot{token}/sendPhoto",
-            data={"chat_id": chat, "caption": CAPTION[:1000]},
+            data={"chat_id": chat, "caption": caption[:1024]},
             files={"photo": ("tier.jpg", photo, "image/jpeg")},
         ).json()
+        if data.get("ok") and len(caption) > 1024:
+            client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat, "text": caption[:3900]},
+            )
     print(data.get("ok"), data if not data.get("ok") else data["result"]["message_id"])
     return 0 if data.get("ok") else 1
 
