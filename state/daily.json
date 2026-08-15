@@ -1,12 +1,14 @@
 {
   "codes": [],
   "images": [
-    "https://hw-media-cdn-mingchao.kurogame.com/object/1785081600000/okhrprqu3k7zcjhyj6-1785146894790.jpg"
+    "https://hw-media-cdn-mingchao.kurogame.com/object/1785081600000/okhrprqu3k7zcjhyj6-1785146894790.jpg",
+    "https://hw-media-cdn-mingchao.kurogame.com/object/1781193600000/6gcz076gkbpmkf4w61-1781259683101.jpg"
   ],
   "cards": [],
   "community": [],
   "last": {
-    "morning": "2026-08-15"
+    "morning": "2026-08-15",
+    "evening": "2026-08-16"
   },
   "art_pool": [
     {
@@ -76,5 +78,5 @@
   ],
   "art_pool_at": "2026-08-15T06:33:01.178034+00:00",
   "art_pool_version": 2,
-  "updated_at": "2026-08-15T06:33:04.040245+00:00"
+  "updated_at": "2026-08-15T16:28:05.226166+00:00"
 }
