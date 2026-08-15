@@ -415,23 +415,18 @@ def prepare_photo(image_url: str) -> bytes | None:
         if image.mode != "RGB":
             image = image.convert("RGB")
         width, height = image.size
-        if width < 700 or height < 400:
+        if width < 200 or height < 200:
             return None
-        # Длинные превью-полотна режем в широкий кадр 16:9 сверху — как обложки в канале.
-        if height > width * 1.25:
-            image = image.crop((0, 0, width, max(400, int(width * 9 / 16))))
-            width, height = image.size
+        # Не кадрируем: уменьшаем целиком, чтобы влезла вся картинка.
+        scale = 1.0
         longest = max(width, height)
         if longest > 2560:
-            scale = 2560 / longest
+            scale = min(scale, 2560 / longest)
+        if width + height > 10000:
+            scale = min(scale, 10000 / (width + height))
+        if scale < 1:
             image = image.resize(
                 (max(1, int(width * scale)), max(1, int(height * scale))),
-                Image.Resampling.LANCZOS,
-            )
-        if image.size[0] + image.size[1] > 10000:
-            scale = 10000 / (image.size[0] + image.size[1])
-            image = image.resize(
-                (max(1, int(image.size[0] * scale)), max(1, int(image.size[1] * scale))),
                 Image.Resampling.LANCZOS,
             )
         out = BytesIO()
@@ -460,6 +455,14 @@ def send_telegram(text: str, image_url: str | None = None, photo: bytes | None =
             if data.get("ok"):
                 return
             print(f"sendPhoto failed: {data}", file=sys.stderr)
+            data = client.post(
+                f"{api}/sendDocument",
+                data={"chat_id": chat, "caption": caption},
+                files={"document": ("art.jpg", payload, "image/jpeg")},
+            ).json()
+            if data.get("ok"):
+                return
+            print(f"sendDocument failed: {data}", file=sys.stderr)
         data = client.post(
             f"{api}/sendMessage",
             json={"chat_id": chat, "text": text[:3900]},
