@@ -8,9 +8,11 @@ import random
 import re
 import sys
 from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 
 import httpx
+from PIL import Image
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent
@@ -385,25 +387,62 @@ def build_maintenance_text(maint: dict) -> str:
     return "\n".join(lines)
 
 
+def prepare_photo(image_url: str) -> bytes | None:
+    try:
+        raw = httpx.get(
+            image_url,
+            timeout=40,
+            headers={"user-agent": "wuwa-daily/1.0"},
+            follow_redirects=True,
+        )
+        raw.raise_for_status()
+        image = Image.open(BytesIO(raw.content))
+        if image.mode not in {"RGB", "L"}:
+            image = image.convert("RGB")
+        elif image.mode == "L":
+            image = image.convert("RGB")
+        width, height = image.size
+        if width < 80 or height < 80:
+            return None
+        if height > width * 1.6:
+            image = image.crop((0, 0, width, int(width * 1.35)))
+            width, height = image.size
+        longest = max(width, height)
+        if longest > 1280:
+            scale = 1280 / longest
+            image = image.resize(
+                (max(1, int(width * scale)), max(1, int(height * scale))),
+                Image.Resampling.LANCZOS,
+            )
+        if image.size[0] + image.size[1] > 10000:
+            return None
+        out = BytesIO()
+        image.save(out, format="JPEG", quality=85, optimize=True)
+        return out.getvalue()
+    except Exception as exc:
+        print(f"art prepare failed: {exc}", file=sys.stderr)
+        return None
+
+
 def send_telegram(text: str, image_url: str | None = None) -> None:
     token = env("TELEGRAM_BOT_TOKEN")
     chat = env("TELEGRAM_CHANNEL_ID")
     if not token or not chat:
         raise RuntimeError("нет TELEGRAM_BOT_TOKEN или TELEGRAM_CHANNEL_ID")
     api = f"https://api.telegram.org/bot{token}"
-    with httpx.Client(timeout=30) as client:
+    caption = text[:1000]
+    with httpx.Client(timeout=60) as client:
         if image_url:
-            caption = html.escape(text)[:1000]
-            data = client.post(
-                f"{api}/sendPhoto",
-                json={
-                    "chat_id": chat,
-                    "photo": image_url,
-                    "caption": caption,
-                },
-            ).json()
-            if data.get("ok"):
-                return
+            photo = prepare_photo(image_url)
+            if photo:
+                data = client.post(
+                    f"{api}/sendPhoto",
+                    data={"chat_id": chat, "caption": caption},
+                    files={"photo": ("art.jpg", photo, "image/jpeg")},
+                ).json()
+                if data.get("ok"):
+                    return
+                print(f"sendPhoto failed: {data}", file=sys.stderr)
         data = client.post(
             f"{api}/sendMessage",
             json={"chat_id": chat, "text": text[:3900]},
