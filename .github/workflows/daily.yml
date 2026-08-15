@@ -1,0 +1,43 @@
+name: wuwa-daily
+on:
+  schedule:
+    - cron: "0 6 * * *"
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "morning, evening or auto"
+        required: false
+        default: auto
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Post daily content
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          DAILY_STATE: state/daily.json
+        run: |
+          pip install -q -r daily/requirements.txt
+          SLOT="${{ github.event.inputs.slot }}"
+          if [ -z "$SLOT" ]; then SLOT=auto; fi
+          python daily/poster.py --slot "$SLOT"
+      - name: Save daily state
+        run: |
+          git config user.name "wuwa-daily"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p state
+          git add state/daily.json
+          if git diff --cached --quiet; then
+            echo "state unchanged"
+          else
+            git commit -m "state: daily content"
+            git push
+          fi

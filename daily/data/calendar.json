@@ -1,0 +1,90 @@
+{
+  "timezone": "UTC+8",
+  "version": "3.5",
+  "next_version": "3.6",
+  "maintenance": {
+    "version": "3.6",
+    "start": "2026-08-20T04:00:00+08:00",
+    "end": "2026-08-20T11:00:00+08:00",
+    "compensation": "астриты x300, Crystal Solvent x2"
+  },
+  "predownload": {
+    "start": "2026-08-18T10:00:00+08:00",
+    "note": "предзагрузка 3.6"
+  },
+  "banners": [
+    {
+      "id": "suisui-35",
+      "name": "Suisui",
+      "kind": "новый 5★, Glacio / rectifier",
+      "start": "2026-07-30",
+      "end": "2026-08-19",
+      "phase": "3.5 фаза 2"
+    },
+    {
+      "id": "aemeath-35",
+      "name": "Aemeath",
+      "kind": "реран 5★, Fusion / меч",
+      "start": "2026-07-30",
+      "end": "2026-08-19",
+      "phase": "3.5 фаза 2"
+    },
+    {
+      "id": "qingxiao-36",
+      "name": "Qingxiao",
+      "kind": "новый 5★, Aero / меч",
+      "start": "2026-08-20",
+      "end": "2026-09-09",
+      "phase": "3.6 фаза 1"
+    },
+    {
+      "id": "denia-36",
+      "name": "Denia",
+      "kind": "реран 5★, Fusion / rectifier",
+      "start": "2026-08-20",
+      "end": "2026-09-09",
+      "phase": "3.6 фаза 1"
+    },
+    {
+      "id": "jingran-36",
+      "name": "Jingran",
+      "kind": "новый 5★, Fusion / двуручник",
+      "start": "2026-09-10",
+      "end": "2026-09-30",
+      "phase": "3.6 фаза 2"
+    },
+    {
+      "id": "hiyuki-36",
+      "name": "Hiyuki",
+      "kind": "реран 5★, Glacio / меч",
+      "start": "2026-09-10",
+      "end": "2026-09-30",
+      "phase": "3.6 фаза 2"
+    },
+    {
+      "id": "mornye-36",
+      "name": "Mornye",
+      "kind": "реран 5★, Fusion / двуручник",
+      "start": "2026-09-10",
+      "end": "2026-09-30",
+      "phase": "3.6 фаза 2"
+    }
+  ],
+  "events": [
+    {
+      "id": "patch-36",
+      "name": "релиз 3.6 Lamplight in Mirage",
+      "start": "2026-08-20",
+      "end": "2026-08-20",
+      "note": "после техработ"
+    }
+  ],
+  "resets": [
+    {
+      "id": "weekly-boss",
+      "name": "недельные боссы",
+      "weekday": 0,
+      "note": "понедельник, 04:00 UTC+8"
+    }
+  ]
+}
