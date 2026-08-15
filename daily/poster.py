@@ -10,6 +10,7 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import httpx
 from PIL import Image
@@ -76,6 +77,7 @@ class State:
             "codes": [],
             "images": [],
             "cards": [],
+            "community": [],
             "last": {},
         }
         if path.exists():
@@ -153,6 +155,142 @@ def html_to_text(raw: str) -> str:
     text = re.sub(r"<[^>]+>", " ", text)
     text = html.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+COMMUNITY_KEEP = re.compile(
+    r"(record|showcase|collection|collect|meta|tier|hologram|tower|"
+    r"whimpering|clear|cleared|roster|gallery|speedrun|first clear|"
+    r"full team|all resonator|all character|c6|s6|100%|completion|"
+    r"рекорд|коллекц|мет[аы]|башн|голограмм|витрина|собрал)",
+    re.I,
+)
+COMMUNITY_SKIP = re.compile(
+    r"(megathread|giveaway|leak|nsfw|porn|code redeem|looking for|"
+    r"who should i pull|should i pull|wutheringwavesmod)",
+    re.I,
+)
+
+
+def parse_reddit_rss(xml_text: str) -> list[dict]:
+    posts: list[dict] = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return posts
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    for entry in root.findall("a:entry", ns):
+        title = (entry.findtext("a:title", default="", namespaces=ns) or "").strip()
+        link_el = entry.find("a:link", ns)
+        href = (link_el.get("href") if link_el is not None else "") or ""
+        author = entry.findtext("a:author/a:name", default="", namespaces=ns) or ""
+        summary = html_to_text(entry.findtext("a:content", default="", namespaces=ns) or "")
+        if title and href:
+            posts.append(
+                {
+                    "title": title,
+                    "url": href.split("?")[0],
+                    "author": author.replace("/u/", "").replace("u/", ""),
+                    "summary": summary[:400],
+                }
+            )
+    return posts
+
+
+def fetch_community(client: httpx.Client, state: State) -> dict | None:
+    used = set(state.data.get("community") or [])
+    headers = {
+        "user-agent": "wuwa-daily/1.0 (fan news; +https://github.com/Kalekakektop2/wuwa-news-bot)"
+    }
+    urls = [
+        "https://www.reddit.com/r/WutheringWaves/search.rss?q=showcase+OR+record+OR+collection+OR+meta+OR+hologram+OR+cleared&restrict_sr=1&sort=new",
+        "https://www.reddit.com/r/WutheringWaves/top/.rss?t=week",
+        "https://www.reddit.com/r/WutheringWaves/.rss",
+    ]
+    posts: list[dict] = []
+    for url in urls:
+        try:
+            response = client.get(url, headers=headers, timeout=20)
+            if response.status_code >= 400 or not response.text.strip():
+                continue
+            posts.extend(parse_reddit_rss(response.text))
+        except Exception as exc:
+            print(f"community rss: {exc}", file=sys.stderr)
+    interesting: list[dict] = []
+    for post in posts:
+        if COMMUNITY_SKIP.search(post["title"]):
+            continue
+        if not COMMUNITY_KEEP.search(post["title"]):
+            continue
+        if post["url"] in used:
+            continue
+        interesting.append(post)
+    return interesting[0] if interesting else None
+
+
+def rewrite_community(post: dict) -> str:
+    key = env("GEMINI_API_KEY")
+    fallback = (
+        f"с сообщества\n\n"
+        f"на Reddit игрок {post['author'] or 'из вувы'} выложил: {post['title']}\n"
+        "цифры и скрины лучше смотреть в исходнике — сами ничего не придумываем.\n\n"
+        f"источник — {post['url']}\n"
+        "это не официалка Kuro"
+    )
+    if not key:
+        return fallback
+    prompt = (
+        "Перескажи коротко пост игрока по Wuthering Waves для русскоязычного фан-канала.\n"
+        "Живой тон, 4–7 строк. Не выдумывай цифры, рекорды и имена, которых нет во входе.\n"
+        "Не называй себя ботом. Не притворяйся Kuro.\n"
+        "Не ставь футер про Telegram.\n"
+        "Верни только текст поста."
+    )
+    user = (
+        f"Заголовок: {post['title']}\n"
+        f"Автор: {post['author'] or 'неизвестен'}\n"
+        f"Ссылка: {post['url']}\n"
+        f"Обрывок текста: {post.get('summary') or 'нет'}"
+    )
+    base = env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
+    model = env("GEMINI_MODEL", "gemini-3.6-flash") or "gemini-3.6-flash"
+    url = (
+        f"{base}/models/{model}:generateContent"
+        if base.endswith("/v1beta") or base.endswith("/v1")
+        else f"{base}/v1beta/models/{model}:generateContent"
+    )
+    try:
+        with httpx.Client(timeout=45) as client:
+            response = client.post(
+                url,
+                headers={"Content-Type": "application/json", "x-goog-api-key": key},
+                json={
+                    "system_instruction": {"parts": [{"text": prompt}]},
+                    "contents": [{"role": "user", "parts": [{"text": user}]}],
+                    "generationConfig": {
+                        "temperature": 0.5,
+                        "maxOutputTokens": 1024,
+                        "thinkingConfig": {"thinkingLevel": "minimal"},
+                    },
+                },
+            )
+        if response.status_code >= 400:
+            raise RuntimeError(response.text[:200])
+        parts = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        text = "".join(part.get("text", "") for part in parts).strip()
+        if not text:
+            raise RuntimeError("empty")
+        if post["url"] not in text:
+            text = f"{text}\n\nисточник — {post['url']}"
+        if "официал" not in text.lower() and "kuro" not in text.lower():
+            text = f"{text}\nэто не официалка Kuro"
+        return text
+    except Exception as exc:
+        print(f"community rewrite: {exc}", file=sys.stderr)
+        return fallback
+
+
+def build_community_text(post: dict) -> str:
+    return rewrite_community(post)
 
 
 IMG_SRC = re.compile(r"src=[\"'](https?://[^\"']+\.(?:jpg|jpeg|png|webp))[\"']", re.I)
@@ -506,12 +644,16 @@ def decide(slot: str, calendar: dict, roster: dict, state: State) -> dict:
                 return {"kind": "rus", "slot": slot, "version": maint.get("version", "")}
         if today.weekday() == 6:
             return {"kind": "calendar", "week": True, "slot": slot}
+        if today.weekday() in {2, 5}:
+            return {"kind": "community", "slot": slot}
         day_index = today.toordinal()
         rotate = ["character", "echo", "character", "echo"]
         return {"kind": rotate[day_index % 4], "slot": slot}
 
     if slot == "maintenance":
         return {"kind": "maintenance", "slot": slot}
+    if slot == "community":
+        return {"kind": "community", "slot": slot}
 
     return {"kind": "calendar", "slot": slot}
 
@@ -568,6 +710,23 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
         elif kind == "rus":
             text = build_rus_text(plan.get("version") or calendar.get("next_version") or "")
             state.data.setdefault("last", {})["rus_patch"] = plan.get("version")
+        elif kind == "community":
+            post = None
+            try:
+                post = fetch_community(client, state)
+            except Exception as exc:
+                print(f"community: {exc}", file=sys.stderr)
+            if not post:
+                card = pick_card(roster, state, "character")
+                kind = "character"
+                text = build_card_text(card, "character") if card else build_calendar_text(calendar, now_utc8().date())
+                if card:
+                    state.data.setdefault("cards", []).append(card["key"])
+            else:
+                text = build_community_text(post)
+                used = state.data.setdefault("community", [])
+                used.append(post["url"])
+                state.data["community"] = used[-80:]
         elif kind in {"character", "echo"}:
             card = pick_card(roster, state, kind)
             if not card:
@@ -602,7 +761,11 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Daily WuWa channel content")
-    parser.add_argument("--slot", choices=["morning", "evening", "maintenance", "auto"], default="auto")
+    parser.add_argument(
+        "--slot",
+        choices=["morning", "evening", "maintenance", "community", "auto"],
+        default="auto",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true", help="игнорировать лимит 1 пост на слот")
     args = parser.parse_args()
