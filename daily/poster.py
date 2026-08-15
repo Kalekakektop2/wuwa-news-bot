@@ -169,10 +169,17 @@ SKIP_TITLES = (
 )
 
 
+ART_POOL_VERSION = 2
+
+
 def collect_art_pool(client: httpx.Client, state: State) -> list[tuple[str, str]]:
     cached = state.data.get("art_pool") or []
     cached_at = state.data.get("art_pool_at")
-    if cached and cached_at:
+    if (
+        cached
+        and cached_at
+        and state.data.get("art_pool_version") == ART_POOL_VERSION
+    ):
         try:
             age = datetime.now(timezone.utc) - datetime.fromisoformat(cached_at)
             if age < timedelta(hours=12) and len(cached) >= 6:
@@ -192,15 +199,15 @@ def collect_art_pool(client: httpx.Client, state: State) -> list[tuple[str, str]
             continue
         if item.get("articleId"):
             candidates.append(item)
-        if len(candidates) >= 20:
+        if len(candidates) >= 16:
             break
 
     pool: list[tuple[str, str]] = []
     seen: set[str] = set()
     for item in candidates:
         title = str(item.get("articleTitle") or "").strip()
+        urls: list[str] = []
         cover = str(item.get("suggestCover") or "")
-        urls = []
         if cover.startswith("http"):
             urls.append(cover)
         try:
@@ -211,29 +218,37 @@ def collect_art_pool(client: httpx.Client, state: State) -> list[tuple[str, str]
             urls.extend(IMG_SRC.findall(html_body))
         except Exception:
             continue
+        # Только первая широкая картинка статьи — как обложка у постов в канале.
         for url in urls:
             if url in seen or "emoji" in url.lower():
                 continue
             seen.add(url)
             pool.append((url, title))
+            break
 
     if pool:
         state.data["art_pool"] = [{"url": url, "title": title} for url, title in pool]
         state.data["art_pool_at"] = datetime.now(timezone.utc).isoformat()
+        state.data["art_pool_version"] = ART_POOL_VERSION
     return pool
 
 
-def pick_random_art(client: httpx.Client, state: State) -> tuple[str, str] | None:
+def pick_random_art(client: httpx.Client, state: State) -> tuple[str, bytes] | None:
     pool = collect_art_pool(client, state)
     if not pool:
         return None
     recent = set((state.data.get("images") or [])[-12:])
-    choices = [item for item in pool if item[0] not in recent] or pool
-    picked = random.choice(choices)
-    used = state.data.setdefault("images", [])
-    used.append(picked[0])
-    state.data["images"] = used[-40:]
-    return picked
+    choices = [item for item in pool if item[0] not in recent] or list(pool)
+    random.shuffle(choices)
+    for url, _title in choices[:6]:
+        photo = prepare_photo(url)
+        if not photo:
+            continue
+        used = state.data.setdefault("images", [])
+        used.append(url)
+        state.data["images"] = used[-40:]
+        return url, photo
+    return None
 
 
 def active_banners(calendar: dict, today: date) -> list[dict]:
@@ -397,34 +412,37 @@ def prepare_photo(image_url: str) -> bytes | None:
         )
         raw.raise_for_status()
         image = Image.open(BytesIO(raw.content))
-        if image.mode not in {"RGB", "L"}:
-            image = image.convert("RGB")
-        elif image.mode == "L":
+        if image.mode != "RGB":
             image = image.convert("RGB")
         width, height = image.size
-        if width < 80 or height < 80:
+        if width < 700 or height < 400:
             return None
-        if height > width * 1.6:
-            image = image.crop((0, 0, width, int(width * 1.35)))
+        # Длинные превью-полотна режем в широкий кадр 16:9 сверху — как обложки в канале.
+        if height > width * 1.25:
+            image = image.crop((0, 0, width, max(400, int(width * 9 / 16))))
             width, height = image.size
         longest = max(width, height)
-        if longest > 1280:
-            scale = 1280 / longest
+        if longest > 2560:
+            scale = 2560 / longest
             image = image.resize(
                 (max(1, int(width * scale)), max(1, int(height * scale))),
                 Image.Resampling.LANCZOS,
             )
         if image.size[0] + image.size[1] > 10000:
-            return None
+            scale = 10000 / (image.size[0] + image.size[1])
+            image = image.resize(
+                (max(1, int(image.size[0] * scale)), max(1, int(image.size[1] * scale))),
+                Image.Resampling.LANCZOS,
+            )
         out = BytesIO()
-        image.save(out, format="JPEG", quality=85, optimize=True)
+        image.save(out, format="JPEG", quality=92)
         return out.getvalue()
     except Exception as exc:
         print(f"art prepare failed: {exc}", file=sys.stderr)
         return None
 
 
-def send_telegram(text: str, image_url: str | None = None) -> None:
+def send_telegram(text: str, image_url: str | None = None, photo: bytes | None = None) -> None:
     token = env("TELEGRAM_BOT_TOKEN")
     chat = env("TELEGRAM_CHANNEL_ID")
     if not token or not chat:
@@ -432,17 +450,16 @@ def send_telegram(text: str, image_url: str | None = None) -> None:
     api = f"https://api.telegram.org/bot{token}"
     caption = text[:1000]
     with httpx.Client(timeout=60) as client:
-        if image_url:
-            photo = prepare_photo(image_url)
-            if photo:
-                data = client.post(
-                    f"{api}/sendPhoto",
-                    data={"chat_id": chat, "caption": caption},
-                    files={"photo": ("art.jpg", photo, "image/jpeg")},
-                ).json()
-                if data.get("ok"):
-                    return
-                print(f"sendPhoto failed: {data}", file=sys.stderr)
+        payload = photo or (prepare_photo(image_url) if image_url else None)
+        if payload:
+            data = client.post(
+                f"{api}/sendPhoto",
+                data={"chat_id": chat, "caption": caption},
+                files={"photo": ("art.jpg", payload, "image/jpeg")},
+            ).json()
+            if data.get("ok"):
+                return
+            print(f"sendPhoto failed: {data}", file=sys.stderr)
         data = client.post(
             f"{api}/sendMessage",
             json={"chat_id": chat, "text": text[:3900]},
@@ -514,13 +531,14 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
 
     text = ""
     image = None
+    photo = None
     kind = plan["kind"]
     headers = {"user-agent": "wuwa-daily/1.0"}
 
     with httpx.Client(timeout=25, headers=headers, follow_redirects=True) as client:
         art = pick_random_art(client, state)
         if art:
-            image = art[0]
+            image, photo = art
         if kind == "maintenance" and due:
             text = build_maintenance_text(due)
             state.data.setdefault("last", {})["maintenance"] = due["key"]
@@ -564,7 +582,7 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
     if dry_run:
         return 0
 
-    send_telegram(text, image)
+    send_telegram(text, image, photo)
     if slot != "maintenance":
         state.data.setdefault("last", {})[slot] = now_utc8().date().isoformat()
     state.save()
