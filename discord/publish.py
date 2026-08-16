@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -39,6 +40,53 @@ def posted_from_worker(payload: dict) -> tuple[str | None, str]:
             article_id = text.split()[1]
             return article_id, preview
     return None, preview
+
+
+OFFICIAL_BASE = (
+    "https://hw-media-cdn-mingchao.kurogame.com/akiwebsite/website2.0/json/G152/en"
+)
+
+
+def article_image(article_id: str) -> str | None:
+    try:
+        with httpx.Client(timeout=20, headers={"user-agent": "wuwa-news/1.0"}) as client:
+            raw = client.get(f"{OFFICIAL_BASE}/article/{article_id}.json").json()
+            cover = str(raw.get("suggestCover") or "")
+            if cover.startswith("http"):
+                return cover
+            html = str(raw.get("articleContent") or "")
+            match = re.search(
+                r'src=["\'](https?://[^"\']+\.(?:jpg|jpeg|png|webp))', html, re.I
+            )
+            if match:
+                return match.group(1)
+            menu = client.get(f"{OFFICIAL_BASE}/ArticleMenu.json").json()
+        item = next((x for x in menu if str(x.get("articleId")) == str(article_id)), {})
+        cover = str(item.get("suggestCover") or "")
+        return cover if cover.startswith("http") else None
+    except Exception:
+        return None
+
+
+def fallback_art(exclude: str | None = None) -> str | None:
+    try:
+        with httpx.Client(timeout=20, headers={"user-agent": "wuwa-news/1.0"}) as client:
+            menu = client.get(f"{OFFICIAL_BASE}/ArticleMenu.json").json()
+        visual = re.compile(
+            r"wallpaper|version preview|profile reveal|resonator reveal|update content|anthropocene",
+            re.I,
+        )
+        skip = re.compile(r"maintenance notice|convene details|faq|fan creation", re.I)
+        for item in menu:
+            title = str(item.get("articleTitle") or "")
+            if skip.search(title) or not visual.search(title):
+                continue
+            cover = str(item.get("suggestCover") or "")
+            if cover.startswith("http") and cover != exclude:
+                return cover
+    except Exception:
+        return None
+    return None
 
 
 def send_discord(text: str, image_url: str | None = None) -> None:
@@ -81,7 +129,8 @@ def main() -> int:
         if not preview:
             print(f"posted {article_id}, но текста нет — Discord пропускаю")
             return 0
-        send_discord(preview)
+        image = article_image(article_id) or fallback_art()
+        send_discord(preview, image)
         print(f"discord sent {article_id}")
         return 0
     parser.print_help()
