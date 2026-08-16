@@ -678,23 +678,13 @@ def decide(slot: str, calendar: dict, roster: dict, state: State) -> dict:
     maint_day = parse_dt(maint["start"]).date() if maint.get("start") else None
 
     if slot == "morning":
-        if today.weekday() == 0:
-            return {"kind": "calendar", "week": True, "slot": slot}
-        if any(item["left"] <= 2 for item in active_banners(calendar, today)):
-            return {"kind": "calendar", "week": False, "slot": slot}
-        return {"kind": "codes_or_calendar", "slot": slot}
+        return {"kind": "community", "slot": slot, "fallback": "codes_or_card"}
 
     if slot == "evening":
         if maint_day and today in {maint_day, maint_day + timedelta(days=1)}:
             if last.get("rus_patch") != maint.get("version"):
                 return {"kind": "rus", "slot": slot, "version": maint.get("version", "")}
-        if today.weekday() == 6:
-            return {"kind": "calendar", "week": True, "slot": slot}
-        if today.weekday() in {2, 5}:
-            return {"kind": "community", "slot": slot}
-        day_index = today.toordinal()
-        rotate = ["character", "echo", "character", "echo"]
-        return {"kind": rotate[day_index % 4], "slot": slot}
+        return {"kind": "community", "slot": slot, "fallback": "character"}
 
     if slot == "maintenance":
         return {"kind": "maintenance", "slot": slot}
@@ -763,11 +753,30 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
             except Exception as exc:
                 print(f"community: {exc}", file=sys.stderr)
             if not post:
-                card = pick_card(roster, state, "character")
-                kind = "character"
-                text = build_card_text(card, "character") if card else build_calendar_text(calendar, now_utc8().date())
-                if card:
-                    state.data.setdefault("cards", []).append(card["key"])
+                fallback = plan.get("fallback") or "character"
+                if fallback == "codes_or_card":
+                    codes = []
+                    try:
+                        codes.extend(fetch_official_codes(client))
+                    except Exception as exc:
+                        print(f"official codes: {exc}", file=sys.stderr)
+                    fresh = [(c, s) for c, s in codes if c not in set(state.data.get("codes") or [])]
+                    if fresh:
+                        kind = "codes"
+                        text = build_codes_text(fresh)
+                        state.data.setdefault("codes", []).extend(c for c, _ in fresh)
+                    else:
+                        fallback = "character"
+                if fallback == "character" and not text:
+                    card = pick_card(roster, state, "character")
+                    kind = "character"
+                    text = (
+                        build_card_text(card, "character")
+                        if card
+                        else build_calendar_text(calendar, now_utc8().date())
+                    )
+                    if card:
+                        state.data.setdefault("cards", []).append(card["key"])
             else:
                 text = build_community_text(post)
                 used = state.data.setdefault("community", [])
@@ -791,13 +800,52 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
         return 0
 
     text = with_discord_invite(text)
-    send_telegram(text, image, photo)
-    send_discord(text, image)
     if slot != "maintenance":
         state.data.setdefault("last", {})[slot] = now_utc8().date().isoformat()
     state.save()
-    print("sent")
+    if slot == "maintenance":
+        send_telegram(text, image, photo)
+        send_discord(text, image)
+        print("sent")
+        return 0
+    offered = offer_daily_approval(text, image, kind, slot)
+    print("offered" if offered else "offer failed")
     return 0
+
+
+def offer_daily_approval(text: str, image: str | None, kind: str, slot: str) -> bool:
+    token = env("PIKABU_BOT_TOKEN")
+    admin_id = env("PIKABU_ADMIN_ID", "855159275")
+    if not token:
+        print("нет PIKABU_BOT_TOKEN, выкладываю сразу", file=sys.stderr)
+        send_telegram(text, image)
+        send_discord(text, image)
+        return False
+    sys.path.insert(0, str(REPO / "pikabu-bot"))
+    from community import CommunityState, offer_ready_draft
+
+    state_path = Path(env("PIKABU_STATE") or str(REPO / "state" / "pikabu.json"))
+    if not state_path.exists():
+        alt = REPO / "pikabu-bot" / "data" / "seen.json"
+        if alt.exists():
+            state_path = alt
+    title = {
+        "community": "Дневной пост с форума. Выкладываем?",
+        "codes": "Дневной пост: коды. Выкладываем?",
+        "character": "Дневной пост: персонаж. Выкладываем?",
+        "echo": "Дневной пост: эхо. Выкладываем?",
+        "rus": "Дневной пост: русификатор. Выкладываем?",
+    }.get(kind, "Дневной пост. Выкладываем?")
+    offer_ready_draft(
+        token,
+        admin_id,
+        CommunityState(state_path),
+        title=f"{title} ({slot})",
+        text=text,
+        image=image,
+        kind="daily",
+    )
+    return True
 
 
 def infer_slot() -> str:

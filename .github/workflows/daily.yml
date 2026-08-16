@@ -26,6 +26,12 @@ jobs:
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_INVITE: ${{ secrets.DISCORD_INVITE }}
+          PIKABU_BOT_TOKEN: ${{ secrets.PIKABU_BOT_TOKEN }}
+          PIKABU_ADMIN_ID: ${{ secrets.PIKABU_ADMIN_ID }}
+          PIKABU_STATE: state/pikabu.json
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.6-flash
+          GEMINI_BASE_URL: https://generativelanguage.googleapis.com/v1beta
           DAILY_STATE: state/daily.json
         run: |
           pip install -q -r daily/requirements.txt
@@ -42,10 +48,10 @@ jobs:
           git config user.name "wuwa-daily"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           mkdir -p state
-          git add state/daily.json
+          git add state/daily.json state/pikabu.json
           if git diff --cached --quiet; then
             echo "state unchanged"
           else
-            git commit -m "state: daily content"
+            git commit -m "state: daily approval"
             git push
           fi

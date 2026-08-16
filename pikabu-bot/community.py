@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -39,6 +39,7 @@ SKIP = re.compile(
 )
 YES = re.compile(r"^\s*(да|давай|выкладывай|публикуй|ок|ok|yes|\+|ага)\s*[.!]?\s*$", re.I)
 NO = re.compile(r"^\s*(нет|не|не надо|не надо\.|skip|дальше|no|-)\s*[.!]?\s*$", re.I)
+APPROVE_SECONDS = 3600
 
 REWRITE = """
 Ты админ русскоязычного фан-канала по Wuthering Waves (вува).
@@ -365,6 +366,8 @@ def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> 
             "image": post.get("image"),
             "url": post["url"],
             "title": post["title"],
+            "offered_at": datetime.now(timezone.utc).isoformat(),
+            "kind": "community",
         }
     )
     send_dm(
@@ -373,8 +376,9 @@ def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> 
         "С сообщества. Выкладываем?\n\n"
         f"{post.get('source') or 'форум'}: {post['title']}\n"
         f"{post['url']}\n\n"
-        "Напиши «да» — уйдёт в Telegram и Discord.\n"
-        "Напиши «нет» — ищу дальше.",
+        "«да» — в Telegram и Discord.\n"
+        "«нет» — ищу другой.\n"
+        "Если не ответишь час — выложу сам.",
     )
     send_dm(token, admin_id, public)
     logger.info("предложил сообщество: %s", post["title"])
@@ -383,9 +387,10 @@ def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> 
 def find_next(client: httpx.Client, state: CommunityState) -> dict | None:
     posts = fetch_posts(client)
     if not state.data.get("community_ids"):
+        interesting = [post for post in posts if is_interesting(post)]
         state.mark_community_many([post["id"] for post in posts])
         logger.info("первый запуск сообщества: запомнил %s постов", len(posts))
-        return None
+        return interesting[0] if interesting else None
     for post in posts:
         if state.community_seen(post["id"]):
             continue
@@ -396,34 +401,107 @@ def find_next(client: httpx.Client, state: CommunityState) -> dict | None:
     return None
 
 
-def run_community(token: str, admin_id: str, state: CommunityState) -> None:
+def pending_expired(pending: dict) -> bool:
+    raw = pending.get("offered_at")
+    if not raw:
+        return False
+    try:
+        offered = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    if offered.tzinfo is None:
+        offered = offered.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - offered >= timedelta(seconds=APPROVE_SECONDS)
+
+
+def publish_pending(token: str, admin_id: str, pending: dict, note: str) -> bool:
+    try:
+        post_telegram(pending["text"], pending.get("image"))
+        post_discord(pending["text"], pending.get("image"))
+        send_dm(token, admin_id, note)
+        logger.info("опубликовал: %s", pending.get("title"))
+        return True
+    except Exception:
+        logger.exception("не смог выложить")
+        send_dm(token, admin_id, "не смог выложить. напиши «да» ещё раз или «нет».")
+        return False
+
+
+def offer_ready_draft(
+    token: str,
+    admin_id: str,
+    state: CommunityState,
+    *,
+    title: str,
+    text: str,
+    image: str | None = None,
+    kind: str = "daily",
+) -> None:
+    public = text if "t.me/WuwaNewss" in text else with_footer(text)
+    state.set_pending(
+        {
+            "id": f"{kind}:{datetime.now(timezone.utc).isoformat()}",
+            "text": public,
+            "image": image,
+            "title": title,
+            "offered_at": datetime.now(timezone.utc).isoformat(),
+            "kind": kind,
+        }
+    )
+    send_dm(
+        token,
+        admin_id,
+        f"{title}\n\n"
+        "Выкладываем?\n"
+        "«да» — в Telegram и Discord.\n"
+        "«нет» — пришлю другой.\n"
+        "Если не ответишь час — выложу сам.",
+    )
+    send_dm(token, admin_id, public)
+    logger.info("предложил дневной пост: %s", title)
+
+
+def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new: bool = False) -> None:
     decision = process_replies(token, admin_id, state)
     pending = state.pending()
-    if decision == "yes" and pending:
-        try:
-            post_telegram(pending["text"], pending.get("image"))
-            post_discord(pending["text"], pending.get("image"))
-            send_dm(token, admin_id, "выложил в Telegram и Discord.")
-            logger.info("опубликовал сообщество %s", pending.get("title"))
-        except Exception:
-            logger.exception("не смог выложить сообщество")
-            send_dm(token, admin_id, "не смог выложить. попробуй ещё раз «да» или «нет».")
+    if pending and not pending.get("offered_at"):
+        pending["offered_at"] = datetime.now(timezone.utc).isoformat()
+        state.set_pending(pending)
+    if pending and not decision and pending_expired(pending):
+        if publish_pending(
+            token,
+            admin_id,
+            pending,
+            "час прошёл, ответа не было — выложил сам в Telegram и Discord.",
+        ):
+            state.set_pending(None)
+            pending = None
+        else:
             return
-        state.set_pending(None)
-        pending = None
+
+    if decision == "yes" and pending:
+        if publish_pending(token, admin_id, pending, "выложил в Telegram и Discord."):
+            state.set_pending(None)
+            pending = None
+        else:
+            return
     elif decision == "no":
         state.set_pending(None)
         pending = None
-        send_dm(token, admin_id, "ок, ищу дальше.")
+        send_dm(token, admin_id, "ок, ищу другой.")
+        offer_new = True
     elif pending:
         logger.info("ждём ответа по: %s", pending.get("title"))
+        return
+
+    if not offer_new:
         return
 
     with httpx.Client() as client:
         nxt = find_next(client, state)
     if not nxt:
         if decision == "no":
-            send_dm(token, admin_id, "свежего интересного пока нет, смотрю в следующем круге.")
+            send_dm(token, admin_id, "свежего интересного пока нет.")
         else:
             logger.info("интересного с форумов нет")
         return
