@@ -3,13 +3,16 @@
   "images": [
     "https://hw-media-cdn-mingchao.kurogame.com/object/1785081600000/okhrprqu3k7zcjhyj6-1785146894790.jpg",
     "https://hw-media-cdn-mingchao.kurogame.com/object/1781193600000/6gcz076gkbpmkf4w61-1781259683101.jpg",
-    "https://hw-media-cdn-mingchao.kurogame.com/object/1780329600000/951pl5ak7hmc9dfcxs-1780380902244.jpg"
+    "https://hw-media-cdn-mingchao.kurogame.com/object/1780329600000/951pl5ak7hmc9dfcxs-1780380902244.jpg",
+    "https://hw-media-cdn-mingchao.kurogame.com/object/1784822400000/bf7bns1taqiqke56cp-1784890636855.jpg"
   ],
   "cards": [],
-  "community": [],
+  "community": [
+    "https://www.reddit.com/r/WutheringWaves/comments/1vpx1jv/lucy_lynae_ciaccona_who_iuno_s0r1_toa_mid_4_clear/"
+  ],
   "last": {
     "morning": "2026-08-16",
-    "evening": "2026-08-16"
+    "evening": "2026-08-17"
   },
   "art_pool": [
     {
@@ -79,5 +82,5 @@
   ],
   "art_pool_at": "2026-08-16T06:35:18.662403+00:00",
   "art_pool_version": 2,
-  "updated_at": "2026-08-16T06:35:22.892188+00:00"
+  "updated_at": "2026-08-16T16:29:00.015266+00:00"
 }
