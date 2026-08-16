@@ -575,6 +575,52 @@ def prepare_photo(image_url: str) -> bytes | None:
         return None
 
 
+DEFAULT_DISCORD_INVITE = "https://discord.gg/RvBpRACXAE"
+
+
+def discord_invite() -> str:
+    return env("DISCORD_INVITE") or DEFAULT_DISCORD_INVITE
+
+
+def with_discord_invite(text: str) -> str:
+    invite = discord_invite()
+    if "discord.gg/" in text.lower():
+        return text
+    return f"{text.rstrip()}\n\nнаш Discord — {invite}"
+
+
+def for_discord(text: str) -> str:
+    invite = discord_invite()
+    out = text.replace(f"\n\nнаш Discord — {invite}", "").replace(f"\nнаш Discord — {invite}", "")
+    return out.strip()[:1900]
+
+
+def send_discord(text: str, image_url: str | None = None) -> None:
+    hook = env("DISCORD_WEBHOOK_URL")
+    if not hook:
+        print("DISCORD_WEBHOOK_URL нет, Discord пропускаю", file=sys.stderr)
+        return
+    payload = {
+        "username": "Wuwa News",
+        "content": for_discord(text),
+        "allowed_mentions": {"parse": []},
+    }
+    if image_url:
+        payload["embeds"] = [{"image": {"url": image_url}}]
+    try:
+        with httpx.Client(timeout=30) as client:
+            response = client.post(f"{hook}?wait=true", json=payload)
+            if response.status_code >= 400 and image_url:
+                payload.pop("embeds", None)
+                response = client.post(f"{hook}?wait=true", json=payload)
+            if response.status_code >= 400:
+                print(f"discord webhook: {response.status_code} {response.text[:200]}", file=sys.stderr)
+            else:
+                print("discord sent")
+    except Exception as exc:
+        print(f"discord webhook: {exc}", file=sys.stderr)
+
+
 def send_telegram(text: str, image_url: str | None = None, photo: bytes | None = None) -> None:
     token = env("TELEGRAM_BOT_TOKEN")
     chat = env("TELEGRAM_CHANNEL_ID")
@@ -744,7 +790,9 @@ def run_slot(slot: str, *, dry_run: bool) -> int:
     if dry_run:
         return 0
 
+    text = with_discord_invite(text)
     send_telegram(text, image, photo)
+    send_discord(text, image)
     if slot != "maintenance":
         state.data.setdefault("last", {})[slot] = now_utc8().date().isoformat()
     state.save()

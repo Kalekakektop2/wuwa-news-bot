@@ -17,6 +17,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Publish to Discord if Telegram posted
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_INVITE: ${{ secrets.DISCORD_INVITE }}
+        run: |
+          pip install -q -r discord/requirements.txt
+          python discord/publish.py --from-worker worker.json
       - name: Publish to DTF if Telegram posted
         env:
           DTF_TOKEN: ${{ secrets.DTF_TOKEN }}

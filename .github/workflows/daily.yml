@@ -24,6 +24,8 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_INVITE: ${{ secrets.DISCORD_INVITE }}
           DAILY_STATE: state/daily.json
         run: |
           pip install -q -r daily/requirements.txt
