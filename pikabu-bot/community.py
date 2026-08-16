@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -37,8 +38,8 @@ SKIP = re.compile(
     r"who should i pull|should i pull|wutheringwavesmod|selling|account)",
     re.I,
 )
-YES = re.compile(r"^\s*(да|давай|выкладывай|публикуй|ок|ok|yes|\+|ага)\s*[.!]?\s*$", re.I)
-NO = re.compile(r"^\s*(нет|не|не надо|не надо\.|skip|дальше|no|-)\s*[.!]?\s*$", re.I)
+YES = re.compile(r"^\s*(да+|давай|выкладывай|публикуй|ок|okay|yes)\b", re.I)
+NO = re.compile(r"^\s*(нет|не\s+надо|skip|дальше|no)\b", re.I)
 APPROVE_SECONDS = 3600
 
 REWRITE = """
@@ -315,12 +316,55 @@ def process_replies(token: str, admin_id: str, state: CommunityState) -> str | N
     return decision
 
 
+def pick_art(image_url: str | None = None) -> str | None:
+    reddit_preview = bool(image_url and "redd.it" in image_url)
+    if image_url and not reddit_preview:
+        return image_url
+    try:
+        root = Path(__file__).resolve().parent.parent
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from src.art import pick_fallback_art
+
+        picked = pick_fallback_art(image_url)
+        if picked:
+            return picked[0]
+    except Exception:
+        logger.info("src.art недоступен, беру обложку с официалки")
+    try:
+        with httpx.Client(timeout=20, headers={"user-agent": "wuwa-community-bot/1.0"}) as client:
+            menu = client.get(
+                "https://hw-media-cdn-mingchao.kurogame.com/akiwebsite/website2.0/json/G152/en/ArticleMenu.json"
+            ).json()
+        visual = re.compile(
+            r"wallpaper|version preview|profile reveal|resonator reveal|update content|anthropocene",
+            re.I,
+        )
+        skip = re.compile(r"maintenance notice|faq|fan creation", re.I)
+        covers = []
+        for item in menu:
+            title = str(item.get("articleTitle") or "")
+            if skip.search(title) or not visual.search(title):
+                continue
+            cover = str(item.get("suggestCover") or "")
+            if cover.startswith("http"):
+                covers.append(cover)
+        if covers:
+            import random
+
+            return random.choice(covers[:12])
+    except Exception:
+        logger.exception("обложку с официалки не взял")
+    return image_url
+
+
 def post_telegram(text: str, image_url: str | None = None) -> None:
     token = env("TELEGRAM_BOT_TOKEN")
     chat = env("TELEGRAM_CHANNEL_ID")
     if not token or not chat:
         raise RuntimeError("нет TELEGRAM_BOT_TOKEN или TELEGRAM_CHANNEL_ID")
     caption = text[:1000]
+    image_url = pick_art(image_url)
     if image_url:
         try:
             tg_api(
@@ -330,7 +374,24 @@ def post_telegram(text: str, image_url: str | None = None) -> None:
             )
             return
         except Exception:
-            logger.exception("картинку в канал не отправил")
+            logger.exception("картинку по ссылке не отправил, пробую скачать")
+        try:
+            root = Path(__file__).resolve().parent.parent
+            if str(root) not in sys.path:
+                sys.path.insert(0, str(root))
+            from src.art import prepare_photo
+
+            photo = prepare_photo(image_url)
+            if photo:
+                tg_api(
+                    token,
+                    "sendPhoto",
+                    {"chat_id": chat, "caption": caption},
+                    files={"photo": ("art.jpg", photo, "image/jpeg")},
+                )
+                return
+        except Exception:
+            logger.exception("файл арта тоже не ушёл")
     tg_api(token, "sendMessage", {"chat_id": chat, "text": text[:3900]})
 
 
@@ -344,6 +405,7 @@ def post_discord(text: str, image_url: str | None = None) -> None:
         "content": text[:1900],
         "allowed_mentions": {"parse": []},
     }
+    image_url = pick_art(image_url)
     if image_url:
         payload["embeds"] = [{"image": {"url": image_url}}]
     with httpx.Client(timeout=30) as client:
@@ -358,12 +420,13 @@ def post_discord(text: str, image_url: str | None = None) -> None:
 def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> None:
     body = rewrite(post)
     public = with_footer(body)
+    art = pick_art(post.get("image"))
     state.mark_community(post["id"])
     state.set_pending(
         {
             "id": post["id"],
             "text": public,
-            "image": post.get("image"),
+            "image": art,
             "url": post["url"],
             "title": post["title"],
             "offered_at": datetime.now(timezone.utc).isoformat(),
@@ -438,11 +501,12 @@ def offer_ready_draft(
     kind: str = "daily",
 ) -> None:
     public = text if "t.me/WuwaNewss" in text else with_footer(text)
+    art = pick_art(image)
     state.set_pending(
         {
             "id": f"{kind}:{datetime.now(timezone.utc).isoformat()}",
             "text": public,
-            "image": image,
+            "image": art,
             "title": title,
             "offered_at": datetime.now(timezone.utc).isoformat(),
             "kind": kind,
