@@ -333,10 +333,14 @@ class SeenStore:
         self.save()
 
     def save(self) -> None:
-        payload = {
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "ids": sorted(self.ids),
-        }
+        payload = {}
+        if self.path.exists():
+            try:
+                payload = json.loads(self.path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        payload["ids"] = sorted(self.ids)
         self.path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -454,12 +458,21 @@ def main() -> int:
         return 0
     if args.once:
         poll_once(token, admin_id, store, force_latest=False)
+        try:
+            from community import CommunityState, run_community
+
+            run_community(token, admin_id, CommunityState(state_path))
+        except Exception:
+            logger.exception("ошибка мониторинга сообщества")
         return 0
 
     logger.info("пикabu-бот запущен, пишу только в личку %s, интервал %s сек", admin_id, interval)
     while True:
         try:
             poll_once(token, admin_id, store, force_latest=False)
+            from community import CommunityState, run_community
+
+            run_community(token, admin_id, CommunityState(state_path))
         except Exception:
             logger.exception("ошибка цикла")
         time.sleep(interval)

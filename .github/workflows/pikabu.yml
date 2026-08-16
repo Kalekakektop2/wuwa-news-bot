@@ -19,6 +19,10 @@ jobs:
         env:
           PIKABU_BOT_TOKEN: ${{ secrets.PIKABU_BOT_TOKEN }}
           PIKABU_ADMIN_ID: ${{ secrets.PIKABU_ADMIN_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_INVITE: ${{ secrets.DISCORD_INVITE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.6-flash
           GEMINI_BASE_URL: https://generativelanguage.googleapis.com/v1beta
