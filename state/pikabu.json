@@ -69,6 +69,7 @@
     "1vpr2ei",
     "1vpwb88",
     "1vpx1jv",
+    "1vqoebo",
     "1vqovfd",
     "1vqozer",
     "1vqprmh",
@@ -102,6 +103,7 @@
   ],
   "offered_ids": [
     "1vpx1jv",
+    "1vqoebo",
     "1vqovfd",
     "1vqozer",
     "1vqprmh",
@@ -109,8 +111,15 @@
     "https://www.reddit.com/r/WutheringWaves/comments/1vpx1jv/lucy_lynae_ciaccona_who_iuno_s0r1_toa_mid_4_clear/"
   ],
   "skip_ids": [
+    "1vqoj4v",
+    "1vqpbbw",
     "1vqpyoh",
+    "1vqq1h1",
     "1vqqs7x",
+    "1vqsiiy",
+    "1vqslf3",
+    "1vqsobq",
+    "1vqsqd7",
     "1vqtwm7",
     "1vquhly",
     "1vquq5q",
@@ -118,27 +127,30 @@
     "1vqw2pm",
     "1vqwe58",
     "1vqwpp5",
+    "1vqxhpe",
+    "1vqy8o4",
     "x"
   ],
   "topic_keys": [
     "toa",
     "toa-1",
     "toa-2",
+    "toa-3",
     "toa-4",
     "toa-mid 4",
     "toa-mid4",
     "whiwa"
   ],
-  "update_offset": 490964700,
+  "update_offset": 490964701,
   "pending": {
-    "id": "1vqt1q7",
-    "text": "Игрок Nira-17 поделился впечатлениями от закрытия очередного сброса Башни (Tower of Adversity). \n\nКоротко:\n- Все этажи закрылись с запасом в 10–20 секунд.\n- В первой команде использовались ротации с быстрым свапом для разгона Люси и Мортефи.\n- Первые два босса и третья комната с вивой не особо понравились, но сильного завышения хп автор не заметил.\n- Пройти через Таоци в этот раз не получилось.\n- По мнению автора, текущий сброс сильно бьёт по старым пачкам, если нет Линай, Дении или прокачанных персонажей под негативные статусы.\n\nИсточник: https://www.reddit.com/r/WutheringWaves/comments/1vqt1q7/new_toa_reset\n\nэто не официалка Kuro\n\nАктуальная информация всегда у нас в Telegram: https://t.me/WuwaNewss\nDiscord — https://discord.gg/RvBpRACXAE",
-    "image": "https://hw-media-cdn-mingchao.kurogame.com/akiwebsite/website2.0/images/1777392000000/g8wypkxyzgmszk5tgw-1777459841940.jpeg",
-    "url": "https://www.reddit.com/r/WutheringWaves/comments/1vqt1q7/new_toa_reset",
-    "title": "New Toa reset",
-    "offered_at": "2026-08-17T16:43:05.425717+00:00",
+    "id": "1vqoebo",
+    "text": "Игрок под ником Beautiful_Web_3943 зачистил обновлённую Башню (Tower of Adversity) и поделился впечатлениями на Reddit.\n\nКоротко:\n- Прохождение далось очень легко и без каких-либо проблем.\n- Автор поста иронизирует, что Kuro Games стоит усложнить контент.\n- По его мнению, единственное, чем разработчики пытаются повысить сложность — это просто раздуванием HP у врагов.\n\nИсточник: https://www.reddit.com/r/WutheringWaves/comments/1vqoebo/new_toa_new_clear\n\nЭто не официалка Kuro.\n\nАктуальная информация всегда у нас в Telegram: https://t.me/WuwaNewss\nDiscord — https://discord.gg/RvBpRACXAE",
+    "image": "https://hw-media-cdn-mingchao.kurogame.com/object/1777478400000/w4tagoq5znrz0afl7p-1777521389745.png",
+    "url": "https://www.reddit.com/r/WutheringWaves/comments/1vqoebo/new_toa_new_clear",
+    "title": "New TOA New clear",
+    "offered_at": "2026-08-17T17:12:27.884377+00:00",
     "kind": "community"
   },
   "queue": [],
-  "updated_at": "2026-08-17T16:43:05.425726+00:00"
+  "updated_at": "2026-08-17T17:12:27.884385+00:00"
 }
