@@ -1,8 +1,8 @@
 name: wuwa-daily
 on:
   schedule:
-    - cron: "0 6 * * *"
-    - cron: "0 16 * * *"
+    - cron: "0 4 * * *"   # 09:00 Екатеринбург
+    - cron: "0 16 * * *"  # 21:00 Екатеринбург
     - cron: "20 * * * *"
   workflow_dispatch:
     inputs:

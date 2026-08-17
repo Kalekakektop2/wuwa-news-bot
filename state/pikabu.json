@@ -44,7 +44,35 @@
     "5294"
   ],
   "community_ids": [
-    "https://www.reddit.com/r/WutheringWaves/comments/1vn3m5h/finally_done_it/",
+    "1vn6wgz",
+    "1vn90go",
+    "1vnd7w1",
+    "1vnu7ww",
+    "1vnuicf",
+    "1vny4cd",
+    "1vo3zb5",
+    "1vo7gac",
+    "1vo93p9",
+    "1vonzhw",
+    "1voq7kn",
+    "1voy1n3",
+    "1vp2lct",
+    "1vp42vv",
+    "1vp6maw",
+    "1vpb300",
+    "1vpclx4",
+    "1vpjjim",
+    "1vpjoji",
+    "1vpjvs1",
+    "1vpkhdw",
+    "1vpqu5z",
+    "1vpr2ei",
+    "1vpwb88",
+    "1vpx1jv",
+    "1vqovfd",
+    "1vqozer",
+    "1vqprmh",
+    "1vqpyoh",
     "https://www.reddit.com/r/WutheringWaves/comments/1vn6wgz/he_civilization_and_rover_being_a_super_soldier/",
     "https://www.reddit.com/r/WutheringWaves/comments/1vn90go/endstate_matrix_is_there_anything_wrong_with_my/",
     "https://www.reddit.com/r/WutheringWaves/comments/1vnd7w1/official_coming_soon_frequency_cassette_recorder/",
@@ -71,7 +99,33 @@
     "https://www.reddit.com/r/WutheringWaves/comments/1vpwb88/i_swear_im_just_trying_to_collect_rafter_kites/",
     "https://www.reddit.com/r/WutheringWaves/comments/1vpx1jv/lucy_lynae_ciaccona_who_iuno_s0r1_toa_mid_4_clear/"
   ],
+  "offered_ids": [
+    "1vpx1jv",
+    "1vqovfd",
+    "1vqozer",
+    "1vqprmh",
+    "https://www.reddit.com/r/WutheringWaves/comments/1vpx1jv/lucy_lynae_ciaccona_who_iuno_s0r1_toa_mid_4_clear/"
+  ],
+  "skip_ids": [
+    "1vqpyoh",
+    "x"
+  ],
+  "topic_keys": [
+    "toa",
+    "toa-1",
+    "toa-4",
+    "toa-mid 4",
+    "toa-mid4"
+  ],
   "update_offset": 490964698,
-  "pending": null,
-  "updated_at": "2026-08-17T11:52:52.212549+00:00"
+  "pending": {
+    "id": "1vqovfd",
+    "text": "Игрок phng1900 закрыл этаж 2-1 в Башне воспоминаний (ToA#39), используя персонажей Glacio-стихии с S0R1 сборкой против врагов с 70% резистом к Glacio.\n\nКоротко:\n- Прохождение этажа 2-1 в Tower of Adversity (ToA#39)\n- Персонажи Glacio-стихии\n- Уровень резонанса и оружия: S0R1\n- Сопротивление врагов к Glacio: 70%\n\nИсточник: https://www.reddit.com/r/WutheringWaves/comments/1vqovfd/s0r1_glaciochafe_against_70_glacioresist_toa39_21\nЭто не официалка Kuro.\n\nАктуальная информация всегда у нас в Telegram: https://t.me/WuwaNewss\nDiscord — https://discord.gg/RvBpRACXAE",
+    "image": "https://hw-media-cdn-mingchao.kurogame.com/object/1783353600000/sbjd25x282uvmnfoxb-1783416156490.jpg",
+    "url": "https://www.reddit.com/r/WutheringWaves/comments/1vqovfd/s0r1_glaciochafe_against_70_glacioresist_toa39_21",
+    "title": "S0R1 Glacio❄️Chafe against 70% Glacio❄️Resist - ToA#39 2-1",
+    "offered_at": "2026-08-17T11:59:30.556178+00:00",
+    "kind": "community"
+  },
+  "updated_at": "2026-08-17T11:59:30.556178+00:00"
 }

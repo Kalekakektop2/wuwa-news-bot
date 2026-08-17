@@ -22,20 +22,21 @@ TG_CHANNEL = "https://t.me/WuwaNewss"
 DISCORD_INVITE = "https://discord.gg/RvBpRACXAE"
 FOOTER = (
     f"Актуальная информация всегда у нас в Telegram: {TG_CHANNEL}\n"
-    f"Discord: {DISCORD_INVITE}"
+    f"Discord — {DISCORD_INVITE}"
 )
 
 KEEP = re.compile(
     r"(record|showcase|collection|collect|meta|tier|hologram|tower|"
     r"whimpering|clear|cleared|roster|gallery|speedrun|first clear|"
     r"full team|all resonator|all character|c6|r6|s6|100%|completion|"
-    r"union level|ul\s*\d+|whale|title|achievement|"
+    r"union level|ul\s*\d+|whale|title|achievement|\btoa\b|whiwa|"
     r"рекорд|коллекц|мет[аы]|башн|голограмм|витрина|собрал|прошёл|прошел)",
     re.I,
 )
 SKIP = re.compile(
     r"(megathread|giveaway|leak|nsfw|porn|code redeem|looking for|"
-    r"who should i pull|should i pull|wutheringwavesmod|selling|account)",
+    r"who should i pull|should i pull|wutheringwavesmod|selling|account|"
+    r"broke up|girlfriend|boyfriend|\bgf\b|\bbf\b|drama|\[bug\]|\bbug\b)",
     re.I,
 )
 YES = re.compile(r"^\s*(да+|давай|выкладывай|публикуй|ок|okay|yes)\b", re.I)
@@ -50,10 +51,12 @@ REWRITE = """
 Ничего не выдумывай: цифры, ники, рекорды — только если они есть во входе.
 Имена героев можно оставить как есть.
 
+Если во входе нет одновременно: кто (ник) и что сделал (башня/голограмма/рекорд/коллекция/этаж) — верни только слово SKIP.
+
 Формат:
-- 1–2 предложения сути
+- в первом абзаце обязательно ник и что именно прошёл/собрал
 - затем «Коротко:» и 3–6 пунктов с дефисом
-- в конце: источник — URL
+- в конце один раз: источник — URL
 - строка: это не официалка Kuro
 - не пиши про Telegram и Discord
 
@@ -61,10 +64,17 @@ REWRITE = """
 """.strip()
 
 FEEDS = [
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=record+OR+showcase+OR+collection+OR+hologram+OR+speedrun+OR+cleared+OR+tower&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/WutheringWaves/top/.rss?t=day",
-    "https://www.reddit.com/r/gachagaming/search.rss?q=Wuthering+Waves+record+OR+showcase&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/new/.rss",
+    "https://www.reddit.com/r/WutheringWaves/top/.rss?t=week",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=showcase+OR+record+OR+hologram+OR+toa+OR+cleared&restrict_sr=1&sort=new",
 ]
+JSON_FEEDS = [
+    "https://old.reddit.com/r/WutheringWaves/new.json?limit=25",
+    "https://old.reddit.com/r/WutheringWaves/top.json?t=week&limit=15",
+]
+HEADERS = {
+    "user-agent": "Mozilla/5.0 (compatible; wuwa-news-bot/1.2; +https://github.com/Kalekakektop2/wuwa-news-bot)"
+}
 
 
 def html_to_text(raw: str) -> str:
@@ -98,29 +108,135 @@ def parse_reddit_rss(xml_text: str) -> list[dict]:
         if match:
             image = match.group(1)
         if title and href:
+            url = href.split("?")[0].rstrip("/")
             posts.append(
                 {
-                    "id": href.split("?")[0],
+                    "id": reddit_id(url),
                     "title": title,
-                    "url": href.split("?")[0],
+                    "url": url,
                     "author": author.replace("/u/", "").replace("u/", ""),
-                    "summary": summary[:500],
+                    "summary": summary[:800],
                     "image": image,
                     "source": "Reddit",
+                    "topics": topic_keys(title, summary),
                 }
             )
     return posts
 
 
+def reddit_id(url: str) -> str:
+    match = re.search(r"/comments/([a-z0-9]+)", url, re.I)
+    return match.group(1).lower() if match else url.rstrip("/").lower()
+
+
+def topic_keys(title: str, summary: str = "") -> list[str]:
+    blob = f"{title} {summary}".lower()
+    keys: list[str] = []
+    if re.search(r"\btoa\b|tower of adversity|башн", blob):
+        floor = re.search(r"(mid|over|hazard|side)?\s*([1-4])", blob)
+        keys.append("toa-" + re.sub(r"\s+", "", floor.group(0)) if floor else "toa")
+    if re.search(r"whiwa|whimpering", blob):
+        keys.append("whiwa")
+    if re.search(r"hologram|голограмм", blob):
+        keys.append("holo")
+    if re.search(r"endstate matrix", blob):
+        keys.append("endstate")
+    if re.search(r"100%|коллекц|all resonator|all character", blob):
+        keys.append("collection")
+    return keys
+
+
+def is_useful(post: dict) -> bool:
+    author = (post.get("author") or "").strip()
+    if not author or author.lower() in {"automoderator", "[deleted]", "deleted"}:
+        return False
+    blob = f"{post.get('title', '')}\n{post.get('summary', '')}"
+    if SKIP.search(blob) or not KEEP.search(blob):
+        return False
+    if re.search(r"\b(who should|should i|help me|need help|looking for)\b", blob, re.I):
+        return False
+    if len((post.get("title") or "").split()) < 3:
+        return False
+    has_what = bool(
+        re.search(
+            r"(clear|cleared|record|speedrun|hologram|tower|toa|showcase|collection|собрал|прошёл|прошел|рекорд|башн|голограмм|витрин)",
+            blob,
+            re.I,
+        )
+    )
+    has_detail = bool(
+        re.search(
+            r"(\b[A-Z][a-z]{2,}\b|\b\d+\b|mid\s*[1-4]|floor|этаж|iuno|qingxiao|jingran)",
+            blob,
+        )
+    )
+    return has_what and has_detail and len(blob.strip()) >= 20
+
+
+def enrich_post(client: httpx.Client, post: dict) -> dict:
+    rid = reddit_id(post["url"])
+    try:
+        response = client.get(
+            f"https://www.reddit.com/comments/{rid}.json",
+            headers={"user-agent": "wuwa-community-bot/1.0"},
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            return post
+        child = response.json()[0]["data"]["children"][0]["data"]
+        post["author"] = child.get("author") or post.get("author") or ""
+        body = (child.get("selftext") or "").strip()
+        if body:
+            post["summary"] = body[:800]
+        preview = ((child.get("preview") or {}).get("images") or [{}])[0]
+        src = ((preview.get("source") or {}).get("url") or "").replace("&amp;", "&")
+        if src.startswith("http"):
+            post["image"] = src
+        elif str(child.get("url") or "").lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            post["image"] = child["url"]
+        post["topics"] = topic_keys(post["title"], post.get("summary") or "")
+    except Exception:
+        logger.info("не смог дочитать reddit %s", rid)
+    return post
+
+
+def parse_reddit_json(payload: dict) -> list[dict]:
+    posts: list[dict] = []
+    children = ((payload.get("data") or {}).get("children")) or []
+    for child in children:
+        data = child.get("data") or {}
+        title = str(data.get("title") or "").strip()
+        permalink = str(data.get("permalink") or "")
+        if not title or not permalink:
+            continue
+        url = "https://www.reddit.com" + permalink.split("?")[0].rstrip("/")
+        body = str(data.get("selftext") or "")
+        image = None
+        preview = ((data.get("preview") or {}).get("images") or [{}])[0]
+        src = ((preview.get("source") or {}).get("url") or "").replace("&amp;", "&")
+        if src.startswith("http"):
+            image = src
+        posts.append(
+            {
+                "id": reddit_id(url),
+                "title": title,
+                "url": url,
+                "author": str(data.get("author") or ""),
+                "summary": body[:800],
+                "image": image,
+                "source": "Reddit",
+                "topics": topic_keys(title, body),
+            }
+        )
+    return posts
+
+
 def fetch_posts(client: httpx.Client) -> list[dict]:
-    headers = {
-        "user-agent": "wuwa-community-bot/1.0 (fan monitor; +https://github.com/Kalekakektop2/wuwa-news-bot)"
-    }
     posts: list[dict] = []
     seen: set[str] = set()
     for url in FEEDS:
         try:
-            response = client.get(url, headers=headers, timeout=20)
+            response = client.get(url, headers=HEADERS, timeout=20)
             if response.status_code >= 400 or not response.text.strip():
                 continue
             for post in parse_reddit_rss(response.text):
@@ -130,14 +246,26 @@ def fetch_posts(client: httpx.Client) -> list[dict]:
                 posts.append(post)
         except Exception as exc:
             logger.warning("лента сообщества: %s", exc)
+    if posts:
+        return posts
+    for url in JSON_FEEDS:
+        try:
+            response = client.get(url, headers=HEADERS, timeout=20)
+            if response.status_code >= 400 or not response.text.strip():
+                logger.warning("json лента %s: %s", url, response.status_code)
+                continue
+            for post in parse_reddit_json(response.json()):
+                if post["id"] in seen:
+                    continue
+                seen.add(post["id"])
+                posts.append(post)
+        except Exception as exc:
+            logger.warning("лента сообщества json: %s", exc)
     return posts
 
 
 def is_interesting(post: dict) -> bool:
-    blob = f"{post.get('title', '')}\n{post.get('summary', '')}"
-    if SKIP.search(blob):
-        return False
-    return bool(KEEP.search(blob))
+    return is_useful(post)
 
 
 def fallback_text(post: dict) -> str:
@@ -189,8 +317,10 @@ def rewrite(post: dict) -> str:
         parts = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
         text = "".join(part.get("text", "") for part in parts).strip()
         text = re.sub(r"^```(?:\w+)?\n|\n```$", "", text).strip()
-        if not text:
-            raise RuntimeError("empty")
+        if not text or text.strip().upper() == "SKIP":
+            raise RuntimeError("skip")
+        if not draft_is_concrete(text, post):
+            raise RuntimeError("слишком пустой рерайт")
         if post["url"] not in text:
             text = f"{text}\n\nисточник — {post['url']}"
         if "официал" not in text.lower() and "kuro" not in text.lower():
@@ -198,11 +328,33 @@ def rewrite(post: dict) -> str:
         return text
     except Exception:
         logger.exception("рерайт сообщества не вышел")
-        return fallback_text(post)
+        return ""
+
+
+def draft_is_concrete(text: str, post: dict) -> bool:
+    low = text.lower()
+    author = (post.get("author") or "").lower()
+    has_who = bool(author and author in low) or "игрок" in low or bool(post.get("author"))
+    has_what = bool(
+        re.search(
+            r"(башн|toa|голограмм|рекорд|собрал|прошёл|прошел|этаж|коллекц|витрин|закрыл)",
+            low,
+        )
+    )
+    return has_who and has_what and len(text) > 80
 
 
 def with_footer(text: str) -> str:
-    return f"{text.rstrip()}\n\n{FOOTER}"
+    cleaned = text.strip()
+    cleaned = re.sub(
+        r"\n*(актуальная информация всегда у нас в telegram:[^\n]*)",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(r"\n*(наш discord[^\n]*|discord\s*[—:-][^\n]*)", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return f"{cleaned}\n\n{FOOTER}"
 
 
 class CommunityState:
@@ -212,6 +364,9 @@ class CommunityState:
         self.data = {
             "ids": [],
             "community_ids": [],
+            "offered_ids": [],
+            "skip_ids": [],
+            "topic_keys": [],
             "update_offset": 0,
             "pending": None,
         }
@@ -241,20 +396,61 @@ class CommunityState:
         self.data["ids"] = sorted(ids)
         self.save()
 
-    def community_seen(self, post_id: str) -> bool:
-        return post_id in {str(item) for item in self.data.get("community_ids") or []}
+    def all_seen_ids(self) -> set[str]:
+        raw = {str(item) for item in self.data.get("community_ids") or []}
+        extra = {reddit_id(item) for item in raw}
+        return raw | extra
 
-    def mark_community(self, post_id: str) -> None:
-        ids = {str(item) for item in self.data.get("community_ids") or []}
-        ids.add(post_id)
-        self.data["community_ids"] = sorted(ids)[-400:]
+    def offered_ids(self) -> set[str]:
+        raw = {str(item) for item in self.data.get("offered_ids") or []}
+        return raw | {reddit_id(item) for item in raw}
+
+    def already_offered(self, post: dict) -> bool:
+        ids = self.offered_ids()
+        if post.get("id") in ids or reddit_id(post.get("url") or "") in ids:
+            return True
+        known = {str(item) for item in self.data.get("topic_keys") or []}
+        return any(key in known for key in post.get("topics") or [])
+
+    def skip_seen(self, post: dict) -> bool:
+        skips = {reddit_id(str(item)) for item in self.data.get("skip_ids") or []}
+        return reddit_id(post.get("url") or post.get("id") or "") in skips
+
+    def mark_skip(self, post: dict) -> None:
+        skips = {str(item) for item in self.data.get("skip_ids") or []}
+        skips.add(reddit_id(post.get("url") or post.get("id") or ""))
+        self.data["skip_ids"] = sorted(item for item in skips if item)[-400:]
         self.save()
 
-    def mark_community_many(self, post_ids: list[str]) -> None:
-        ids = {str(item) for item in self.data.get("community_ids") or []}
-        ids.update(post_ids)
-        self.data["community_ids"] = sorted(ids)[-400:]
+    def community_seen(self, post: dict | str) -> bool:
+        if isinstance(post, str):
+            return post in self.offered_ids() or reddit_id(post) in self.offered_ids()
+        return self.already_offered(post) or self.skip_seen(post)
+
+    def mark_offered(self, post: dict) -> None:
+        ids = self.offered_ids()
+        ids.add(str(post.get("id") or ""))
+        ids.add(reddit_id(post.get("url") or ""))
+        self.data["offered_ids"] = sorted(item for item in ids if item)[-300:]
+        self.mark_community(post)
+
+    def mark_community(self, post: dict | str) -> None:
+        ids = self.all_seen_ids()
+        topics = {str(item) for item in self.data.get("topic_keys") or []}
+        if isinstance(post, str):
+            ids.add(post)
+            ids.add(reddit_id(post))
+        else:
+            ids.add(str(post.get("id") or ""))
+            ids.add(reddit_id(post.get("url") or ""))
+            topics.update(post.get("topics") or [])
+        self.data["community_ids"] = sorted(item for item in ids if item)[-500:]
+        self.data["topic_keys"] = sorted(topics)[-200:]
         self.save()
+
+    def mark_community_many(self, posts: list) -> None:
+        for item in posts:
+            self.mark_community(item)
 
     def pending(self) -> dict | None:
         return self.data.get("pending")
@@ -417,11 +613,15 @@ def post_discord(text: str, image_url: str | None = None) -> None:
             raise RuntimeError(f"Discord webhook: {response.status_code} {response.text[:200]}")
 
 
-def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> None:
+def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> bool:
     body = rewrite(post)
+    if not body or not draft_is_concrete(body, post):
+        state.mark_skip(post)
+        logger.info("черновик пустой, пропускаю: %s", post.get("title"))
+        return False
     public = with_footer(body)
     art = pick_art(post.get("image"))
-    state.mark_community(post["id"])
+    state.mark_offered(post)
     state.set_pending(
         {
             "id": post["id"],
@@ -445,20 +645,18 @@ def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> 
     )
     send_dm(token, admin_id, public)
     logger.info("предложил сообщество: %s", post["title"])
+    return True
 
 
 def find_next(client: httpx.Client, state: CommunityState) -> dict | None:
     posts = fetch_posts(client)
-    if not state.data.get("community_ids"):
-        interesting = [post for post in posts if is_interesting(post)]
-        state.mark_community_many([post["id"] for post in posts])
-        logger.info("первый запуск сообщества: запомнил %s постов", len(posts))
-        return interesting[0] if interesting else None
     for post in posts:
-        if state.community_seen(post["id"]):
+        if state.already_offered(post) or state.skip_seen(post):
             continue
-        if not is_interesting(post):
-            state.mark_community(post["id"])
+        post = enrich_post(client, post)
+        if not is_useful(post):
+            state.mark_skip(post)
+            logger.info("слабо: %s", post.get("title"))
             continue
         return post
     return None
@@ -500,7 +698,7 @@ def offer_ready_draft(
     image: str | None = None,
     kind: str = "daily",
 ) -> None:
-    public = text if "t.me/WuwaNewss" in text else with_footer(text)
+    public = with_footer(text)
     art = pick_art(image)
     state.set_pending(
         {
@@ -562,11 +760,13 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
         return
 
     with httpx.Client() as client:
-        nxt = find_next(client, state)
-    if not nxt:
+        for _ in range(8):
+            nxt = find_next(client, state)
+            if not nxt:
+                break
+            if offer_post(token, admin_id, state, nxt):
+                return
         if decision == "no":
             send_dm(token, admin_id, "свежего интересного пока нет.")
         else:
             logger.info("интересного с форумов нет")
-        return
-    offer_post(token, admin_id, state, nxt)
