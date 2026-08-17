@@ -111,6 +111,8 @@
     "https://www.reddit.com/r/WutheringWaves/comments/1vpx1jv/lucy_lynae_ciaccona_who_iuno_s0r1_toa_mid_4_clear/"
   ],
   "skip_ids": [
+    "1vqoadr",
+    "1vqoah3",
     "1vqoj4v",
     "1vqpbbw",
     "1vqpyoh",
@@ -128,7 +130,9 @@
     "1vqwe58",
     "1vqwpp5",
     "1vqxhpe",
+    "1vqxk1p",
     "1vqy8o4",
+    "1vqyhtb",
     "x"
   ],
   "topic_keys": [
@@ -141,16 +145,8 @@
     "toa-mid4",
     "whiwa"
   ],
-  "update_offset": 490964701,
-  "pending": {
-    "id": "1vqoebo",
-    "text": "Игрок под ником Beautiful_Web_3943 зачистил обновлённую Башню (Tower of Adversity) и поделился впечатлениями на Reddit.\n\nКоротко:\n- Прохождение далось очень легко и без каких-либо проблем.\n- Автор поста иронизирует, что Kuro Games стоит усложнить контент.\n- По его мнению, единственное, чем разработчики пытаются повысить сложность — это просто раздуванием HP у врагов.\n\nИсточник: https://www.reddit.com/r/WutheringWaves/comments/1vqoebo/new_toa_new_clear\n\nЭто не официалка Kuro.\n\nАктуальная информация всегда у нас в Telegram: https://t.me/WuwaNewss\nDiscord — https://discord.gg/RvBpRACXAE",
-    "image": "https://hw-media-cdn-mingchao.kurogame.com/object/1777478400000/w4tagoq5znrz0afl7p-1777521389745.png",
-    "url": "https://www.reddit.com/r/WutheringWaves/comments/1vqoebo/new_toa_new_clear",
-    "title": "New TOA New clear",
-    "offered_at": "2026-08-17T17:12:27.884377+00:00",
-    "kind": "community"
-  },
+  "update_offset": 490964702,
+  "pending": null,
   "queue": [],
-  "updated_at": "2026-08-17T17:12:27.884385+00:00"
+  "updated_at": "2026-08-17T17:49:15.248912+00:00"
 }
