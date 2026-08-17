@@ -119,7 +119,14 @@
     "toa-mid4"
   ],
   "update_offset": 490964699,
-  "pending": null,
+  "pending": {
+    "id": "daily:2026-08-17T16:31:40.778137+00:00",
+    "text": "Бафф в Башне сейчас настолько мощный, что можно закрывать контент буквально проломом! Автор поста зачистил 4-й этаж среднего уровня (TOA Middle Floor 4) пачкой из Luuk, Denia и Mornye. Все персонажи — S0R1. Забег вышел очень потным: пройти удалось за 2:51:38, то есть в запасе оставалось всего около 20 секунд. Отличный пример того, как правильные усиления решают исход боя!\n\nисточник — https://www.reddit.com/r/WutheringWaves/comments/1vqwyc6/toa_middle_floor_4_s0r1_luuk_s0r1_denia_s0r1/\nэто не официалка Kuro\n\nАктуальная информация всегда у нас в Telegram: https://t.me/WuwaNewss\nDiscord — https://discord.gg/RvBpRACXAE",
+    "image": "https://hw-media-cdn-mingchao.kurogame.com/object/1777478400000/w4tagoq5znrz0afl7p-1777521389745.png",
+    "title": "Дневной пост с форума. Выкладываем? (evening)",
+    "offered_at": "2026-08-17T16:31:40.778156+00:00",
+    "kind": "daily"
+  },
   "queue": [],
-  "updated_at": "2026-08-17T16:03:26.443171+00:00"
+  "updated_at": "2026-08-17T16:31:40.778162+00:00"
 }
