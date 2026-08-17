@@ -371,29 +371,66 @@ def collect_art_pool(client: httpx.Client, state: State) -> list[tuple[str, str]
     return pool
 
 
+def _art_key(url: str) -> str:
+    return url.split("?", 1)[0].rstrip("/").lower().rsplit("/", 1)[-1]
+
+
+def _dhash(data: bytes) -> str | None:
+    try:
+        image = Image.open(BytesIO(data)).convert("L").resize((17, 16), Image.Resampling.LANCZOS)
+        pixels = list(image.getdata())
+        bits = []
+        for row in range(16):
+            start = row * 17
+            for col in range(16):
+                bits.append("1" if pixels[start + col] > pixels[start + col + 1] else "0")
+        return hex(int("".join(bits), 2))[2:]
+    except Exception:
+        return None
+
+
 def pick_random_art(client: httpx.Client, state: State) -> tuple[str, bytes] | None:
     pool = collect_art_pool(client, state)
     if not pool:
         return None
     recent = set(state.data.get("images") or [])
+    hashes: set[str] = set()
     used_path = REPO / "state" / "used_art.json"
     if used_path.exists():
         try:
-            recent.update(json.loads(used_path.read_text(encoding="utf-8")).get("used_art") or [])
+            blob = json.loads(used_path.read_text(encoding="utf-8"))
+            recent.update(blob.get("used_art") or [])
+            hashes.update(str(item) for item in (blob.get("hashes") or []) if item)
         except Exception:
             pass
-    choices = [item for item in pool if item[0] not in recent]
+    recent_keys = {_art_key(url) for url in recent}
+    choices = [item for item in pool if _art_key(item[0]) not in recent_keys]
     random.shuffle(choices)
     for url, _title in choices:
         photo = prepare_photo(url)
         if not photo:
             continue
+        digest = _dhash(photo)
+        if digest and any(
+            (int(digest, 16) ^ int(known, 16)).bit_count() <= 10 for known in hashes if known
+        ):
+            recent.add(url)
+            recent_keys.add(_art_key(url))
+            hashes.add(digest)
+            continue
         used = state.data.setdefault("images", [])
         used.append(url)
         state.data["images"] = used[-200:]
+        recent.add(url)
+        if digest:
+            hashes.add(digest)
         used_path.parent.mkdir(parents=True, exist_ok=True)
         used_path.write_text(
-            json.dumps({"used_art": sorted(recent | {url})[-400:]}, ensure_ascii=False, indent=2)
+            json.dumps(
+                {"used_art": sorted(recent)[-400:], "hashes": sorted(hashes)[-400:]},
+                ensure_ascii=False,
+                indent=2,
+            )
             + "\n",
             encoding="utf-8",
         )

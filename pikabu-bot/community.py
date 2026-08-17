@@ -528,6 +528,32 @@ def process_replies(token: str, admin_id: str, state: CommunityState) -> str | N
     return decision
 
 
+ART_MENU = (
+    "https://hw-media-cdn-mingchao.kurogame.com/akiwebsite/website2.0/json/G152/en/"
+    "ArticleMenu.json"
+)
+ART_ARTICLE = (
+    "https://hw-media-cdn-mingchao.kurogame.com/akiwebsite/website2.0/json/G152/en/"
+    "article/{id}.json"
+)
+ART_IMG = re.compile(r"src=[\"'](https?://[^\"']+\.(?:jpg|jpeg|png|webp))[\"']", re.I)
+ART_VISUAL = re.compile(
+    r"wallpaper|version preview|profile reveal|resonator reveal|update content|"
+    r"upcoming events|anthropocene|fan creation",
+    re.I,
+)
+ART_SKIP = re.compile(r"maintenance notice|faq|convene details|premium model set", re.I)
+ART_HASH_NEAR = 10
+
+
+def art_key(url: str) -> str:
+    return url.split("?", 1)[0].rstrip("/").lower().rsplit("/", 1)[-1]
+
+
+def used_art_file() -> Path:
+    return Path(__file__).resolve().parent.parent / "state" / "used_art.json"
+
+
 def used_art_paths() -> list[Path]:
     root = Path(__file__).resolve().parent.parent
     return [
@@ -539,8 +565,9 @@ def used_art_paths() -> list[Path]:
     ]
 
 
-def load_used_art() -> set[str]:
-    used: set[str] = set()
+def load_used_blob() -> dict:
+    urls: set[str] = set()
+    hashes: set[str] = set()
     for path in used_art_paths():
         if not path.exists():
             continue
@@ -548,79 +575,217 @@ def load_used_art() -> set[str]:
             blob = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
-        used.update(str(item) for item in (blob.get("images") or []) if item)
-        used.update(str(item) for item in (blob.get("used_art") or []) if item)
-    return used
+        urls.update(str(item) for item in (blob.get("images") or []) if item)
+        urls.update(str(item) for item in (blob.get("used_art") or []) if item)
+        hashes.update(str(item) for item in (blob.get("hashes") or []) if item)
+    return {"used_art": urls, "hashes": hashes}
 
 
-def remember_art(url: str) -> None:
-    if not url:
-        return
-    used = load_used_art()
-    used.add(url)
-    root = Path(__file__).resolve().parent.parent
-    path = root / "state" / "used_art.json"
+def save_used_blob(blob: dict) -> None:
+    path = used_art_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"used_art": sorted(used)[-400:]}, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(
+            {
+                "used_art": sorted({str(item) for item in blob.get("used_art") or [] if item})[-400:],
+                "hashes": sorted({str(item) for item in blob.get("hashes") or [] if item})[-400:],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
 
 
-def pick_art(image_url: str | None = None) -> str | None:
-    used = load_used_art()
-    reddit_preview = bool(image_url and "redd.it" in image_url)
-    if image_url and not reddit_preview and image_url not in used:
-        remember_art(image_url)
-        return image_url
-    try:
-        root = Path(__file__).resolve().parent.parent
-        if str(root) not in sys.path:
-            sys.path.insert(0, str(root))
-        from src.art import pick_fallback_art
+def load_used_art() -> set[str]:
+    return set(load_used_blob().get("used_art") or [])
 
-        picked = pick_fallback_art(image_url)
-        if picked and picked[0] not in used:
-            remember_art(picked[0])
-            return picked[0]
-    except Exception:
-        logger.info("src.art недоступен, беру новую обложку")
+
+def remember_art(url: str, digest: str | None = None) -> None:
+    if not url:
+        return
+    blob = load_used_blob()
+    used = set(blob.get("used_art") or [])
+    used.add(url)
+    hashes = set(blob.get("hashes") or [])
+    if digest:
+        hashes.add(digest)
+    blob["used_art"] = used
+    blob["hashes"] = hashes
+    save_used_blob(blob)
+
+
+def _image_dhash(data: bytes) -> str | None:
     try:
-        with httpx.Client(timeout=20, headers={"user-agent": "wuwa-community-bot/1.0"}) as client:
-            menu = client.get(
-                "https://hw-media-cdn-mingchao.kurogame.com/akiwebsite/website2.0/json/G152/en/ArticleMenu.json"
-            ).json()
-        visual = re.compile(
-            r"wallpaper|version preview|profile reveal|resonator reveal|update content|anthropocene",
-            re.I,
+        from io import BytesIO
+
+        from PIL import Image
+
+        image = Image.open(BytesIO(data)).convert("L").resize((17, 16), Image.Resampling.LANCZOS)
+        pixels = list(image.getdata())
+        bits: list[str] = []
+        for row in range(16):
+            start = row * 17
+            for col in range(16):
+                bits.append("1" if pixels[start + col] > pixels[start + col + 1] else "0")
+        return hex(int("".join(bits), 2))[2:]
+    except Exception:
+        return None
+
+
+def _hash_near(left: str, right: str, limit: int = ART_HASH_NEAR) -> bool:
+    try:
+        return (int(left, 16) ^ int(right, 16)).bit_count() <= limit
+    except ValueError:
+        return left == right
+
+
+def art_is_used(url: str, blob: dict | None = None) -> bool:
+    if not url:
+        return True
+    blob = blob or load_used_blob()
+    used = {str(item) for item in blob.get("used_art") or []}
+    if url in used or art_key(url) in {art_key(item) for item in used}:
+        return True
+    reddit = "redd.it" in url or "reddit.com" in url
+    return reddit
+
+
+def collect_art_candidates() -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    try:
+        with httpx.Client(
+            timeout=30,
+            headers={"user-agent": "wuwa-community-bot/1.0"},
+            follow_redirects=True,
+        ) as client:
+            menu = client.get(ART_MENU).json()
+            articles = 0
+            for item in menu:
+                title = str(item.get("articleTitle") or "")
+                if ART_SKIP.search(title) or not ART_VISUAL.search(title):
+                    continue
+                found: list[str] = []
+                cover = str(item.get("suggestCover") or "")
+                if cover.startswith("http"):
+                    found.append(cover)
+                try:
+                    raw = client.get(ART_ARTICLE.format(id=item["articleId"])).json()
+                    found.extend(ART_IMG.findall(raw.get("articleContent") or ""))
+                except Exception:
+                    pass
+                taken = 0
+                for url in found:
+                    if "emoji" in url.lower() or "gif" in url.lower():
+                        continue
+                    key = art_key(url)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    urls.append(url)
+                    taken += 1
+                    if taken >= 4:
+                        break
+                articles += 1
+                if articles >= 40:
+                    break
+    except Exception:
+        logger.exception("не собрал пул артов")
+    return urls
+
+
+def _download_art(url: str) -> bytes | None:
+    try:
+        raw = httpx.get(
+            url,
+            timeout=40,
+            headers={"user-agent": "wuwa-news/1.0"},
+            follow_redirects=True,
         )
-        skip = re.compile(r"maintenance notice|faq|fan creation", re.I)
-        covers = []
-        for item in menu:
-            title = str(item.get("articleTitle") or "")
-            if skip.search(title) or not visual.search(title):
-                continue
-            cover = str(item.get("suggestCover") or "")
-            if cover.startswith("http") and cover not in used:
-                covers.append(cover)
-        if covers:
-            import random
-
-            chosen = random.choice(covers)
-            remember_art(chosen)
-            return chosen
+        raw.raise_for_status()
+        return raw.content
     except Exception:
-        logger.exception("обложку с официалки не взял")
+        return None
+
+
+def _prepare_photo(url: str) -> bytes | None:
+    data = _download_art(url)
+    if not data:
+        return None
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        image = Image.open(BytesIO(data))
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        width, height = image.size
+        if width < 200 or height < 200:
+            return None
+        scale = 1.0
+        longest = max(width, height)
+        if longest > 2560:
+            scale = min(scale, 2560 / longest)
+        if width + height > 10000:
+            scale = min(scale, 10000 / (width + height))
+        if scale < 1:
+            image = image.resize(
+                (max(1, int(width * scale)), max(1, int(height * scale))),
+                Image.Resampling.LANCZOS,
+            )
+        out = BytesIO()
+        image.save(out, format="JPEG", quality=92)
+        return out.getvalue()
+    except Exception:
+        return data if data[:3] == b"\xff\xd8" else None
+
+
+def pick_fresh_art(blob: dict | None = None, *, commit: bool = True) -> str | None:
+    blob = blob or load_used_blob()
+    used_keys = {art_key(str(item)) for item in blob.get("used_art") or []}
+    hashes = {str(item) for item in blob.get("hashes") or []}
+    import random
+
+    choices = [url for url in collect_art_candidates() if art_key(url) not in used_keys]
+    random.shuffle(choices)
+    for url in choices:
+        data = _download_art(url)
+        if not data:
+            continue
+        digest = _image_dhash(data)
+        if digest and any(_hash_near(digest, known) for known in hashes):
+            # визуальный дубль — навсегда в used, чтобы не крутить снова
+            remember_art(url, digest)
+            used_keys.add(art_key(url))
+            hashes.add(digest)
+            logger.info("арт визуально уже был, пропускаю %s", art_key(url))
+            continue
+        if commit:
+            remember_art(url, digest)
+        return url
     return None
 
 
-def post_telegram(text: str, image_url: str | None = None) -> None:
+def pick_art(image_url: str | None = None, *, commit: bool = True) -> str | None:
+    blob = load_used_blob()
+    if image_url and not art_is_used(image_url, blob):
+        if commit:
+            remember_art(image_url)
+        return image_url
+    return pick_fresh_art(blob, commit=commit)
+
+
+def post_telegram(text: str, image_url: str | None = None, *, pick: bool = True) -> None:
     token = env("TELEGRAM_BOT_TOKEN")
     chat = env("TELEGRAM_CHANNEL_ID")
     if not token or not chat:
         raise RuntimeError("нет TELEGRAM_BOT_TOKEN или TELEGRAM_CHANNEL_ID")
     caption = text[:1000]
-    image_url = pick_art(image_url)
+    if pick:
+        image_url = pick_art(image_url)
     if image_url:
         try:
             tg_api(
@@ -631,14 +796,9 @@ def post_telegram(text: str, image_url: str | None = None) -> None:
             return
         except Exception:
             logger.exception("картинку по ссылке не отправил, пробую скачать")
-        try:
-            root = Path(__file__).resolve().parent.parent
-            if str(root) not in sys.path:
-                sys.path.insert(0, str(root))
-            from src.art import prepare_photo
-
-            photo = prepare_photo(image_url)
-            if photo:
+        photo = _prepare_photo(image_url)
+        if photo:
+            try:
                 tg_api(
                     token,
                     "sendPhoto",
@@ -646,22 +806,23 @@ def post_telegram(text: str, image_url: str | None = None) -> None:
                     files={"photo": ("art.jpg", photo, "image/jpeg")},
                 )
                 return
-        except Exception:
-            logger.exception("файл арта тоже не ушёл")
+            except Exception:
+                logger.exception("файл арта тоже не ушёл")
     tg_api(token, "sendMessage", {"chat_id": chat, "text": text[:3900]})
 
 
-def post_discord(text: str, image_url: str | None = None) -> None:
+def post_discord(text: str, image_url: str | None = None, *, pick: bool = True) -> None:
     hook = env("DISCORD_WEBHOOK_URL")
     if not hook:
         logger.warning("нет DISCORD_WEBHOOK_URL, Discord пропускаю")
         return
+    if pick:
+        image_url = pick_art(image_url)
     payload = {
         "username": "Wuwa News",
         "content": text[:1900],
         "allowed_mentions": {"parse": []},
     }
-    image_url = pick_art(image_url)
     if image_url:
         payload["embeds"] = [{"image": {"url": image_url}}]
     with httpx.Client(timeout=30) as client:
@@ -683,7 +844,7 @@ def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> 
         logger.info("черновик пустой, пропускаю: %s", post.get("title"))
         return False
     public = with_footer(body)
-    art = pick_art(post.get("image"))
+    art = pick_art(post.get("image"), commit=False)
     state.mark_offered(post)
     state.set_pending(
         {
@@ -740,8 +901,10 @@ def pending_expired(pending: dict) -> bool:
 
 def publish_pending(token: str, admin_id: str, pending: dict, note: str) -> bool:
     try:
-        post_telegram(pending["text"], pending.get("image"))
-        post_discord(pending["text"], pending.get("image"))
+        # один арт на оба канала; если он уже был в группе — берём новый
+        image = pick_art(pending.get("image"))
+        post_telegram(pending["text"], image, pick=False)
+        post_discord(pending["text"], image, pick=False)
         send_dm(token, admin_id, note)
         logger.info("опубликовал: %s", pending.get("title"))
         return True
@@ -773,7 +936,7 @@ def offer_ready_draft(
         logger.info("очередь: висит прошлый черновик, этот подождёт (%s)", title)
         return False
     public = with_footer(text)
-    art = pick_art(image)
+    art = pick_art(image, commit=False)
     state.set_pending(
         {
             "id": f"{kind}:{datetime.now(timezone.utc).isoformat()}",

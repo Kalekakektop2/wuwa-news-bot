@@ -396,8 +396,8 @@ def poll_once(token: str, admin_id: str, store: SeenStore, *, force_latest: bool
 
                 public = channel_footer(draft["body"])
                 art = pick_art(None)
-                post_telegram(public, art)
-                post_discord(public, art)
+                post_telegram(public, art, pick=False)
+                post_discord(public, art, pick=False)
                 send_dm(
                     token,
                     admin_id,
