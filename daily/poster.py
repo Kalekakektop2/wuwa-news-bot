@@ -375,16 +375,28 @@ def pick_random_art(client: httpx.Client, state: State) -> tuple[str, bytes] | N
     pool = collect_art_pool(client, state)
     if not pool:
         return None
-    recent = set((state.data.get("images") or [])[-12:])
-    choices = [item for item in pool if item[0] not in recent] or list(pool)
+    recent = set(state.data.get("images") or [])
+    used_path = REPO / "state" / "used_art.json"
+    if used_path.exists():
+        try:
+            recent.update(json.loads(used_path.read_text(encoding="utf-8")).get("used_art") or [])
+        except Exception:
+            pass
+    choices = [item for item in pool if item[0] not in recent]
     random.shuffle(choices)
-    for url, _title in choices[:6]:
+    for url, _title in choices:
         photo = prepare_photo(url)
         if not photo:
             continue
         used = state.data.setdefault("images", [])
         used.append(url)
-        state.data["images"] = used[-40:]
+        state.data["images"] = used[-200:]
+        used_path.parent.mkdir(parents=True, exist_ok=True)
+        used_path.write_text(
+            json.dumps({"used_art": sorted(recent | {url})[-400:]}, ensure_ascii=False, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
         return url, photo
     return None
 

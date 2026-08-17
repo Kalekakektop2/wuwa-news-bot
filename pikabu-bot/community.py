@@ -528,9 +528,50 @@ def process_replies(token: str, admin_id: str, state: CommunityState) -> str | N
     return decision
 
 
+def used_art_paths() -> list[Path]:
+    root = Path(__file__).resolve().parent.parent
+    return [
+        root / "state" / "used_art.json",
+        root / "state" / "pikabu.json",
+        root / "state" / "daily.json",
+        root / "data" / "art_state.json",
+        root / "pikabu-bot" / "data" / "seen.json",
+    ]
+
+
+def load_used_art() -> set[str]:
+    used: set[str] = set()
+    for path in used_art_paths():
+        if not path.exists():
+            continue
+        try:
+            blob = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        used.update(str(item) for item in (blob.get("images") or []) if item)
+        used.update(str(item) for item in (blob.get("used_art") or []) if item)
+    return used
+
+
+def remember_art(url: str) -> None:
+    if not url:
+        return
+    used = load_used_art()
+    used.add(url)
+    root = Path(__file__).resolve().parent.parent
+    path = root / "state" / "used_art.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"used_art": sorted(used)[-400:]}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def pick_art(image_url: str | None = None) -> str | None:
+    used = load_used_art()
     reddit_preview = bool(image_url and "redd.it" in image_url)
-    if image_url and not reddit_preview:
+    if image_url and not reddit_preview and image_url not in used:
+        remember_art(image_url)
         return image_url
     try:
         root = Path(__file__).resolve().parent.parent
@@ -539,10 +580,11 @@ def pick_art(image_url: str | None = None) -> str | None:
         from src.art import pick_fallback_art
 
         picked = pick_fallback_art(image_url)
-        if picked:
+        if picked and picked[0] not in used:
+            remember_art(picked[0])
             return picked[0]
     except Exception:
-        logger.info("src.art недоступен, беру обложку с официалки")
+        logger.info("src.art недоступен, беру новую обложку")
     try:
         with httpx.Client(timeout=20, headers={"user-agent": "wuwa-community-bot/1.0"}) as client:
             menu = client.get(
@@ -559,15 +601,17 @@ def pick_art(image_url: str | None = None) -> str | None:
             if skip.search(title) or not visual.search(title):
                 continue
             cover = str(item.get("suggestCover") or "")
-            if cover.startswith("http"):
+            if cover.startswith("http") and cover not in used:
                 covers.append(cover)
         if covers:
             import random
 
-            return random.choice(covers[:12])
+            chosen = random.choice(covers)
+            remember_art(chosen)
+            return chosen
     except Exception:
         logger.exception("обложку с официалки не взял")
-    return image_url
+    return None
 
 
 def post_telegram(text: str, image_url: str | None = None) -> None:
