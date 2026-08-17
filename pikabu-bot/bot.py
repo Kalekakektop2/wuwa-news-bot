@@ -381,15 +381,6 @@ def poll_once(token: str, admin_id: str, store: SeenStore, *, force_latest: bool
             logger.info("нового нет")
             return
 
-        try:
-            from community import CommunityState
-
-            if CommunityState(store.path).pending() and not force_latest:
-                logger.info("ждём ответа на прошлый черновик, официалку не предлагаю")
-                return
-        except Exception:
-            logger.exception("не смог проверить pending")
-
         sent = False
         for item in candidates:
             article_id = str(item["articleId"])
@@ -399,9 +390,25 @@ def poll_once(token: str, admin_id: str, store: SeenStore, *, force_latest: bool
                 store.mark(article_id)
                 logger.info("не для Пикабу, пропускаю %s: %s", article_id, article["title"])
                 continue
-            header, text = build_draft(article)
-            send_dm(token, admin_id, header)
-            send_dm(token, admin_id, text)
+            draft = rewrite_post(article)
+            try:
+                from community import pick_art, post_discord, post_telegram, with_footer as channel_footer
+
+                public = channel_footer(draft["body"])
+                art = pick_art(None)
+                post_telegram(public, art)
+                post_discord(public, art)
+                send_dm(
+                    token,
+                    admin_id,
+                    "Официалку выложил в Telegram и Discord сам, без спроса.\n"
+                    "Ниже черновик, если нужно продублировать на Пикабу.",
+                )
+                logger.info("официалку выложил в каналы: %s", article["title"])
+            except Exception:
+                logger.exception("официалку в каналы не выложил")
+            send_dm(token, admin_id, build_header(draft))
+            send_dm(token, admin_id, with_footer(draft["body"]))
             store.mark(article_id)
             sent = True
             logger.info("написал в личку про %s: %s", article_id, article["title"])
