@@ -108,6 +108,7 @@
   ],
   "skip_ids": [
     "1vqpyoh",
+    "1vqqs7x",
     "x"
   ],
   "topic_keys": [
@@ -117,15 +118,8 @@
     "toa-mid 4",
     "toa-mid4"
   ],
-  "update_offset": 490964698,
-  "pending": {
-    "id": "1vqovfd",
-    "text": "Игрок phng1900 закрыл этаж 2-1 в Башне воспоминаний (ToA#39), используя персонажей Glacio-стихии с S0R1 сборкой против врагов с 70% резистом к Glacio.\n\nКоротко:\n- Прохождение этажа 2-1 в Tower of Adversity (ToA#39)\n- Персонажи Glacio-стихии\n- Уровень резонанса и оружия: S0R1\n- Сопротивление врагов к Glacio: 70%\n\nИсточник: https://www.reddit.com/r/WutheringWaves/comments/1vqovfd/s0r1_glaciochafe_against_70_glacioresist_toa39_21\nЭто не официалка Kuro.\n\nАктуальная информация всегда у нас в Telegram: https://t.me/WuwaNewss\nDiscord — https://discord.gg/RvBpRACXAE",
-    "image": "https://hw-media-cdn-mingchao.kurogame.com/object/1780934400000/aoew1zsakhoz3nyvos-1780990621009.png",
-    "url": "https://www.reddit.com/r/WutheringWaves/comments/1vqovfd/s0r1_glaciochafe_against_70_glacioresist_toa39_21",
-    "title": "S0R1 Glacio❄️Chafe against 70% Glacio❄️Resist - ToA#39 2-1",
-    "offered_at": "2026-08-17T11:59:30.556178+00:00",
-    "kind": "community"
-  },
-  "updated_at": "2026-08-17T11:59:30.556178+00:00"
+  "update_offset": 490964699,
+  "pending": null,
+  "queue": [],
+  "updated_at": "2026-08-17T12:48:16.094054+00:00"
 }
