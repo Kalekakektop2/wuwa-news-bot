@@ -836,7 +836,7 @@ def offer_daily_approval(text: str, image: str | None, kind: str, slot: str) -> 
         "echo": "Дневной пост: эхо. Выкладываем?",
         "rus": "Дневной пост: русификатор. Выкладываем?",
     }.get(kind, "Дневной пост. Выкладываем?")
-    offer_ready_draft(
+    ok = offer_ready_draft(
         token,
         admin_id,
         CommunityState(state_path),
@@ -845,7 +845,9 @@ def offer_daily_approval(text: str, image: str | None, kind: str, slot: str) -> 
         image=image,
         kind="daily",
     )
-    return True
+    if not ok:
+        print("черновик в очереди: ждём ответа на прошлый")
+    return ok
 
 
 def infer_slot() -> str:

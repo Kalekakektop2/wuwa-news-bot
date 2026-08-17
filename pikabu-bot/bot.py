@@ -381,6 +381,15 @@ def poll_once(token: str, admin_id: str, store: SeenStore, *, force_latest: bool
             logger.info("нового нет")
             return
 
+        try:
+            from community import CommunityState
+
+            if CommunityState(store.path).pending() and not force_latest:
+                logger.info("ждём ответа на прошлый черновик, официалку не предлагаю")
+                return
+        except Exception:
+            logger.exception("не смог проверить pending")
+
         sent = False
         for item in candidates:
             article_id = str(item["articleId"])

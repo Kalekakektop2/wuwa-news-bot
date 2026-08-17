@@ -369,6 +369,7 @@ class CommunityState:
             "topic_keys": [],
             "update_offset": 0,
             "pending": None,
+            "queue": [],
         }
         if path.exists():
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -458,6 +459,21 @@ class CommunityState:
     def set_pending(self, payload: dict | None) -> None:
         self.data["pending"] = payload
         self.save()
+
+    def enqueue(self, payload: dict) -> None:
+        queue = list(self.data.get("queue") or [])
+        queue.append(payload)
+        self.data["queue"] = queue[-10:]
+        self.save()
+
+    def pop_queue(self) -> dict | None:
+        queue = list(self.data.get("queue") or [])
+        if not queue:
+            return None
+        item = queue.pop(0)
+        self.data["queue"] = queue
+        self.save()
+        return item
 
 
 def tg_api(token: str, method: str, payload: dict | None = None, files: dict | None = None) -> dict:
@@ -614,6 +630,9 @@ def post_discord(text: str, image_url: str | None = None) -> None:
 
 
 def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> bool:
+    if state.pending():
+        logger.info("ждём ответа, новый пост не предлагаю")
+        return False
     body = rewrite(post)
     if not body or not draft_is_concrete(body, post):
         state.mark_skip(post)
@@ -697,7 +716,18 @@ def offer_ready_draft(
     text: str,
     image: str | None = None,
     kind: str = "daily",
-) -> None:
+) -> bool:
+    if state.pending():
+        state.enqueue(
+            {
+                "title": title,
+                "text": text,
+                "image": image,
+                "kind": kind,
+            }
+        )
+        logger.info("очередь: висит прошлый черновик, этот подождёт (%s)", title)
+        return False
     public = with_footer(text)
     art = pick_art(image)
     state.set_pending(
@@ -721,6 +751,7 @@ def offer_ready_draft(
     )
     send_dm(token, admin_id, public)
     logger.info("предложил дневной пост: %s", title)
+    return True
 
 
 def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new: bool = False) -> None:
@@ -754,6 +785,19 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
         offer_new = True
     elif pending:
         logger.info("ждём ответа по: %s", pending.get("title"))
+        return
+
+    queued = state.pop_queue()
+    if queued:
+        offer_ready_draft(
+            token,
+            admin_id,
+            state,
+            title=queued.get("title") or "Черновик из очереди. Выкладываем?",
+            text=queued.get("text") or "",
+            image=queued.get("image"),
+            kind=queued.get("kind") or "daily",
+        )
         return
 
     if not offer_new:
