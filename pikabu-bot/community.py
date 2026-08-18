@@ -408,6 +408,21 @@ def rewrite(post: dict) -> str:
         return text
     except Exception:
         logger.exception("рерайт сообщества не вышел")
+        # для арта/косплея/лора лучше простой текст, чем тишина
+        if primary_topic(post) in {
+            "fanart",
+            "cosplay",
+            "lore",
+            "animation",
+            "music",
+            "build",
+            "collection",
+            "gacha",
+            "explore",
+            "showcase",
+            "other",
+        }:
+            return fallback_text(post)
         return ""
 
 
@@ -934,10 +949,33 @@ def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> 
         logger.info("ждём ответа, новый пост не предлагаю")
         return False
     body = rewrite(post)
-    if not body or not draft_is_concrete(body, post):
-        state.mark_skip(post)
-        logger.info("черновик пустой, пропускаю: %s", post.get("title"))
-        return False
+    soft = primary_topic(post) in {
+        "fanart",
+        "cosplay",
+        "lore",
+        "animation",
+        "music",
+        "build",
+        "collection",
+        "gacha",
+        "explore",
+        "showcase",
+        "other",
+    }
+    if not body:
+        if soft:
+            body = fallback_text(post)
+        else:
+            state.mark_skip(post)
+            logger.info("черновик пустой, пропускаю: %s", post.get("title"))
+            return False
+    if not draft_is_concrete(body, post):
+        if soft:
+            body = fallback_text(post)
+        else:
+            state.mark_skip(post)
+            logger.info("черновик пустой, пропускаю: %s", post.get("title"))
+            return False
     public = with_footer(body)
     art = pick_art(post.get("image"), commit=False)
     state.mark_offered(post)

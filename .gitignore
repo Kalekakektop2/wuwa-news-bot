@@ -1,0 +1,9 @@
+.env
+**/.env
+**/__pycache__/
+*.pyc
+_*.py
+discord/__pycache__/
+graphify-out/
+# живёт на VPS, не затирать git reset'ом
+state/*.json
