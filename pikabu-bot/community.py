@@ -992,8 +992,12 @@ def find_next(client: httpx.Client, state: CommunityState) -> dict | None:
         post = enrich_post(client, post)
         if state.already_offered(post) or state.topic_overused(post):
             continue
-        if not is_useful(post):
+        blob = f"{post.get('title', '')}\n{post.get('summary', '')}"
+        if SKIP.search(blob):
             state.mark_skip(post)
+            continue
+        if not is_useful(post):
+            # не пишем в skip навсегда — иначе выжигаем весь reddit за вечер
             logger.info("слабо: %s", post.get("title"))
             continue
         candidates.append(post)
