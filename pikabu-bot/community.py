@@ -51,8 +51,8 @@ YES = re.compile(r"^\s*(да+|давай|выкладывай|публикуй|�
 NO = re.compile(r"^\s*(нет|не\s+надо|skip|дальше|no)\b", re.I)
 APPROVE_SECONDS = 3600
 # после одного такого поста не спамим тем же жанром подряд
-COOLDOWN_TOPICS = {"toa", "whiwa"}
-TOA_WINDOW = 4  # не больше 1 ToA среди последних N community-предложек
+COOLDOWN_TOPICS = {"toa", "whiwa", "combat"}
+TOA_WINDOW = 4  # не больше 1 ToA/combat среди последних N community-предложек
 
 REWRITE = """
 Ты админ русскоязычного фан-канала по Wuthering Waves (вува).
@@ -182,11 +182,18 @@ def topic_keys(title: str, summary: str = "") -> list[str]:
         keys.append("explore")
     if re.search(r"\bboss\b|weekly challenge|босс", blob) and "toa" not in keys:
         keys.append("boss")
-    if re.search(
-        r"showcase|витрин|\bs0r?\d\b|\bc0\b|full clear|team clear",
-        blob,
-    ) and "toa" not in keys:
+    if re.search(r"showcase|витрин", blob) and "toa" not in keys:
         keys.append("showcase")
+    # прохождение/клиры (в т.ч. S0R1) — отдельный жанр, чтобы не путать с фан-артом
+    if (
+        re.search(
+            r"\bs0r?\d\b|\bc0\b|full clear|team clear|cleared|can still do it|"
+            r"mid\s*[1-4]|over\s*[1-4]|hazard\s*[1-4]|закрыл|прошёл|прошел",
+            blob,
+        )
+        and not {"fanart", "cosplay", "lore", "music", "animation"} & set(keys)
+    ):
+        keys.append("combat")
     return keys
 
 
@@ -206,6 +213,7 @@ def primary_topic(post: dict) -> str:
         "boss",
         "showcase",
         "endstate",
+        "combat",
         "whiwa",
         "toa",
     ):
@@ -487,15 +495,13 @@ class CommunityState:
         return post.get("id") in ids or reddit_id(post.get("url") or "") in ids
 
     def topic_overused(self, post: dict) -> bool:
-        """Не даём башне/whiwa забить всю ленту: максимум 1 ToA среди последних N."""
+        """Не даём башне/клирам забить ленту: максимум 1 combat/ToA среди последних N."""
         topic = primary_topic(post)
         recent = [str(item) for item in (self.data.get("recent_topics") or [])]
-        if topic == "toa":
-            window = recent[-TOA_WINDOW:]
-            if sum(1 for item in window if item == "toa") >= 1:
+        window = recent[-TOA_WINDOW:]
+        if topic in {"toa", "combat", "whiwa"}:
+            if sum(1 for item in window if item in {"toa", "combat", "whiwa"}) >= 1:
                 return True
-        if topic == "whiwa" and "whiwa" in recent[-TOA_WINDOW:]:
-            return True
         return False
 
     def skip_seen(self, post: dict) -> bool:
@@ -968,18 +974,20 @@ def diversity_score(post: dict, state: CommunityState) -> int:
     # сильнее любим то, чего давно не было
     if topic not in recent[-6:]:
         score += 30
-    if topic not in {"toa", "whiwa"}:
+    if topic not in {"toa", "whiwa", "combat"}:
         score += 20
     if topic in {"fanart", "cosplay", "lore", "animation", "music", "build", "collection"}:
-        score += 25
+        score += 35
     if topic in {"showcase", "boss", "gacha", "holo", "explore"}:
         score += 10
-    if topic == "toa":
-        score -= 40
-    if "toa" in (post.get("topics") or []):
-        score -= 20
-    if post.get("image"):
-        score += 5
+    if topic in {"toa", "combat"}:
+        score -= 50
+    if {"toa", "combat"} & set(post.get("topics") or []):
+        score -= 25
+    if post.get("image") and topic in {"fanart", "cosplay", "animation", "music"}:
+        score += 10
+    elif post.get("image"):
+        score += 3
     return score
 
 
@@ -1114,9 +1122,19 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
         else:
             return
     elif decision == "no":
+        rejected = pending or {}
+        # чтобы после «нет» не предложить тот же боевой клир снова
+        recent = [str(item) for item in (state.data.get("recent_topics") or [])]
+        recent.append("combat" if rejected.get("kind") in {"daily", "community"} else "combat")
+        # если в тексте явно башня/клир — помечаем жанр
+        blob = f"{rejected.get('title', '')}\n{rejected.get('text', '')}".lower()
+        if re.search(r"\btoa\b|башн|s0r?\d|закрыл|прошёл|прошел", blob):
+            recent.append("combat")
+            recent.append("toa")
+        state.data["recent_topics"] = recent[-20:]
         state.set_pending(None)
         pending = None
-        send_dm(token, admin_id, "ок, ищу другой.")
+        send_dm(token, admin_id, "ок, ищу другой — без башни/клиров.")
         offer_new = True
     elif pending:
         logger.info("ждём ответа по: %s", pending.get("title"))
@@ -1139,13 +1157,18 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
         return
 
     with httpx.Client(follow_redirects=True, timeout=30) as client:
-        for _ in range(8):
+        for _ in range(12):
             nxt = find_next(client, state)
             if not nxt:
                 break
+            # после отказа от клира — не предлагаем combat/toa сразу
+            if decision == "no" and primary_topic(nxt) in {"toa", "combat", "whiwa"}:
+                state.mark_skip(nxt)
+                logger.info("после отказа пропускаю клир: %s", nxt.get("title"))
+                continue
             if offer_post(token, admin_id, state, nxt):
                 return
         if decision == "no":
-            send_dm(token, admin_id, "свежего интересного пока нет.")
+            send_dm(token, admin_id, "свежего небашенного пока нет, гляну ещё на следующем круге.")
         else:
             logger.info("интересного с форумов нет")
