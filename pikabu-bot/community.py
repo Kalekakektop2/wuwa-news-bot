@@ -48,7 +48,9 @@ SKIP = re.compile(
     r"how to learn|how do i|can someone help|need advice|"
     r"cosplay|fan\s*art|fanart|illustration|drew|drawing|\boc\b|"
     r"comic|commission|mermaid|convention|mcm|world tour|ticket|"
-    r"косплей|фан.?арт|арт\b|рисунок|нарисова)",
+    r"косплей|фан.?арт|арт\b|рисунок|нарисова|рисованн|эротик|"
+    r"anime art|18\+|nsfw|razer|мерч|девайс|коллекц\w*\s+девайс|"
+    r"русификатор|russifier|техработ|предзагрузк|рейтинг персонаж)",
     re.I,
 )
 YES = re.compile(r"^\s*(да+|давай|выкладывай|публикуй|ок|okay|yes)\b", re.I)
@@ -60,11 +62,11 @@ TOA_WINDOW = 4  # не больше 1 ToA/combat среди последних N
 
 REWRITE = """
 Ты админ русскоязычного фан-канала по Wuthering Waves (вува).
-Нужен короткий пост ТОЛЬКО про внутриигровой момент. Это НЕ официалка Kuro.
+Нужен короткий пост ТОЛЬКО про внутриигровой момент с Пикабу. Это НЕ официалка Kuro.
 
 Подходит: прохождение, витрина в игре, сборка/ротация, удачный крут,
 находка в мире, босс/голограмма, смешной/редкий игровой момент, скрин из игры.
-НЕ подходит: косплей, фан-арт, рисунки, оффлайн-встречи, мемы без игры.
+НЕ подходит: косплей, фан-арт, 18+, мерч, новости про девайсы, оффлайн.
 
 Тон: живой, спокойный, как человек. Без кринжа, без «брооо», без канцелярита.
 Ничего не выдумывай: цифры, ники, факты — только если они есть во входе.
@@ -82,20 +84,31 @@ REWRITE = """
 Верни только текст поста.
 """.strip()
 
-FEEDS = [
-    "https://www.reddit.com/r/WutheringWaves/new/.rss",
-    "https://www.reddit.com/r/WutheringWaves/top/.rss?t=week",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=showcase+OR+build+OR+guide+OR+gameplay&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=hologram+OR+collection+OR+echo+OR+exploration&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=record+OR+cleared+OR+toa+OR+whiwa+OR+pull&restrict_sr=1&sort=new",
+# Reddit отключён: слишком много мусора. Источник — Пикабу по тегам.
+PIKABU_TAGS = [
+    "https://pikabu.ru/tag/Wuthering%20Waves",
+    "https://pikabu.ru/tag/Wuthering%20Waves/hot",
+    "https://pikabu.ru/tag/wuwa",
+    "https://pikabu.ru/tag/wuwa/hot",
+    "https://pikabu.ru/tag/%D0%B2%D1%83%D0%B2%D0%B0",
+    "https://pikabu.ru/tag/%D0%B2%D1%83%D0%B2%D0%B0/hot",
+    "https://pikabu.ru/search?q=Wuthering%20Waves&section=fresh",
 ]
-JSON_FEEDS = [
-    "https://www.reddit.com/r/WutheringWaves/new.json?limit=40",
-    "https://www.reddit.com/r/WutheringWaves/top.json?t=week&limit=25",
-    "https://www.reddit.com/r/WutheringWaves/search.json?q=showcase+OR+gameplay+OR+build+OR+hologram&restrict_sr=1&sort=new&limit=25",
-]
+# наши же посты с канала, которые кто-то заливает на Пикабу
+OWN_MARKERS = re.compile(
+    r"это не официалка kuro|t\.me/wuwanewss|discord\.gg/rvbpracxae|"
+    r"актуальная информация всегда у нас в telegram",
+    re.I,
+)
+GAME_HINT = re.compile(
+    r"wuthering|\bwuwa\b|\bвува\b|резонатор|tower of adversity|\btoa\b|"
+    r"whiwa|whimpering|голограмм|qingxiao|aemeath|jingran|iuno|"
+    r"kuro games|куpo|solaris",
+    re.I,
+)
 HEADERS = {
-    "user-agent": "Mozilla/5.0 (compatible; wuwa-news-bot/1.2; +https://github.com/Kalekakektop2/wuwa-news-bot)"
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "accept-language": "ru-RU,ru;q=0.9,en;q=0.8",
 }
 
 
@@ -216,6 +229,8 @@ def is_useful(post: dict) -> bool:
     if not author or author.lower() in {"automoderator", "[deleted]", "deleted"}:
         return False
     blob = f"{post.get('title', '')}\n{post.get('summary', '')}"
+    if not GAME_HINT.search(blob):
+        return False
     if SKIP.search(blob) or not KEEP.search(blob):
         return False
     if re.search(r"\b(who should|should i|help me|need help|looking for)\b", blob, re.I):
@@ -256,35 +271,43 @@ def _mark_reddit_blocked(seconds: int = 90) -> None:
 
 
 def enrich_post(client: httpx.Client, post: dict) -> dict:
-    """Дочитываем reddit только если не в бане; иначе оставляем RSS-данные."""
-    if reddit_is_blocked():
+    """Для Пикабу дочитываем страницу сторис; reddit больше не трогаем."""
+    url = post.get("url") or ""
+    if "pikabu.ru/story/" not in url:
         return post
-    rid = reddit_id(post["url"])
     try:
-        response = client.get(
-            f"https://www.reddit.com/comments/{rid}.json",
-            headers=HEADERS,
-            timeout=8,
-        )
-        if response.status_code in {403, 429}:
-            _mark_reddit_blocked(120 if response.status_code == 429 else 60)
-            return post
+        response = client.get(url, headers=HEADERS, timeout=15, follow_redirects=True)
         if response.status_code >= 400:
             return post
-        child = response.json()[0]["data"]["children"][0]["data"]
-        post["author"] = child.get("author") or post.get("author") or ""
-        body = (child.get("selftext") or "").strip()
-        if body:
-            post["summary"] = body[:800]
-        preview = ((child.get("preview") or {}).get("images") or [{}])[0]
-        src = ((preview.get("source") or {}).get("url") or "").replace("&amp;", "&")
-        if src.startswith("http"):
-            post["image"] = src
-        elif str(child.get("url") or "").lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-            post["image"] = child["url"]
+        html = response.text
+        if "nsfw-stub" in html or "tags__tag_nsfw" in html:
+            post["summary"] = ""
+            return post
+        content_m = re.search(
+            r'class="story__content-inner[^"]*"(.*?)(?:class="story__tags|class="story__footer")',
+            html,
+            re.S | re.I,
+        )
+        if content_m:
+            summary = html_to_text(content_m.group(1))[:800]
+            if summary:
+                post["summary"] = summary
+            if OWN_MARKERS.search(summary):
+                post["summary"] = ""
+                return post
+            img_m = re.search(
+                r'<img[^>]+(?:data-src|src)="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+                content_m.group(1),
+                re.I,
+            )
+            if img_m and not post.get("image"):
+                post["image"] = img_m.group(1)
+        author_m = re.search(r'data-author-name="([^"]*)"', html)
+        if author_m and author_m.group(1).strip():
+            post["author"] = author_m.group(1).strip()
         post["topics"] = topic_keys(post["title"], post.get("summary") or "")
     except Exception:
-        logger.info("не смог дочитать reddit %s", rid)
+        logger.info("не смог дочитать пикабу %s", url)
     return post
 
 
@@ -319,35 +342,87 @@ def parse_reddit_json(payload: dict) -> list[dict]:
     return posts
 
 
+def parse_pikabu_html(html_text: str) -> list[dict]:
+    posts: list[dict] = []
+    chunks = re.split(r'<article\s+class="story\b', html_text, flags=re.I)
+    for chunk in chunks[1:]:
+        if "story__placeholder" in chunk or "nsfw-stub" in chunk or "tags__tag_nsfw" in chunk:
+            continue
+        sid_m = re.search(r'data-story-id="(\d+)"', chunk)
+        title_m = re.search(
+            r'<a([^>]*class="[^"]*story__title-link[^"]*"[^>]*)>(.*?)</a>',
+            chunk,
+            re.S | re.I,
+        )
+        if not sid_m or not title_m:
+            continue
+        story_id = sid_m.group(1)
+        href_m = re.search(r'href="([^"]+)"', title_m.group(1))
+        if not href_m:
+            continue
+        href = href_m.group(1).split("?")[0]
+        title = re.sub(r"<[^>]+>", "", title_m.group(2)).strip()
+        if not title or not href.startswith("http"):
+            continue
+        author = ""
+        author_m = re.search(r'data-author-name="([^"]*)"', chunk)
+        if author_m:
+            author = author_m.group(1).strip()
+        content_m = re.search(
+            r'class="story__content-inner[^"]*"(.*?)</div>\s*</div>\s*<div class="story__read-more',
+            chunk,
+            re.S | re.I,
+        )
+        if not content_m:
+            content_m = re.search(
+                r'class="story__content[^"]*"(.*?)(?:class="story__tags|class="story__footer")',
+                chunk,
+                re.S | re.I,
+            )
+        raw_content = content_m.group(1) if content_m else ""
+        summary = html_to_text(raw_content)[:800]
+        if OWN_MARKERS.search(f"{title}\n{summary}"):
+            continue
+        image = None
+        img_m = re.search(
+            r'<img[^>]+(?:data-src|src)="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+            raw_content,
+            re.I,
+        )
+        if img_m:
+            image = img_m.group(1)
+        posts.append(
+            {
+                "id": f"pikabu:{story_id}",
+                "title": title,
+                "url": href,
+                "author": author,
+                "summary": summary,
+                "image": image,
+                "source": "Пикабу",
+                "topics": topic_keys(title, summary),
+            }
+        )
+    return posts
+
+
 def fetch_posts(client: httpx.Client) -> list[dict]:
     posts: list[dict] = []
     seen: set[str] = set()
-    for url in FEEDS:
+    for url in PIKABU_TAGS:
         try:
-            response = client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
+            response = client.get(url, headers=HEADERS, timeout=25, follow_redirects=True)
             if response.status_code >= 400 or not response.text.strip():
+                logger.warning("пикабу %s: %s", url, response.status_code)
                 continue
-            for post in parse_reddit_rss(response.text):
+            for post in parse_pikabu_html(response.text):
                 if post["id"] in seen:
                     continue
                 seen.add(post["id"])
                 posts.append(post)
         except Exception as exc:
-            logger.warning("лента сообщества: %s", exc)
-    # JSON тоже всегда — иначе поиск залипает на одной RSS-выборке
-    for url in JSON_FEEDS:
-        try:
-            response = client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
-            if response.status_code >= 400 or not response.text.strip():
-                logger.warning("json лента %s: %s", url, response.status_code)
-                continue
-            for post in parse_reddit_json(response.json()):
-                if post["id"] in seen:
-                    continue
-                seen.add(post["id"])
-                posts.append(post)
-        except Exception as exc:
-            logger.warning("лента сообщества json: %s", exc)
+            logger.warning("лента пикабу: %s", exc)
+    logger.info("пикабу: собрал %s постов", len(posts))
     return posts
 
 
