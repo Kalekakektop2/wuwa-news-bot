@@ -1239,8 +1239,9 @@ def run_community(
                 state.save()
                 return
         if decision == "no" or state.data.get("need_offer"):
-            # не сдаёмся — need_offer остаётся, следующий круг long-poll сразу продолжит поиск
-            send_dm(token, admin_id, "пока пусто, ищу дальше…")
-            logger.info("need_offer: кандидата нет, продолжу на следующем круге")
+            # не сдаёмся — need_offer остаётся; DM только при свежем «нет», без спама каждый круг
+            if decision == "no":
+                send_dm(token, admin_id, "пока пусто, ищу дальше…")
+            logger.info("need_offer: кандидата нет, продолжу сразу на следующем круге")
         else:
             logger.info("интересного с форумов нет")
