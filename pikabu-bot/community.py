@@ -611,13 +611,25 @@ def send_dm(token: str, admin_id: str, text: str) -> None:
     )
 
 
-def process_replies(token: str, admin_id: str, state: CommunityState) -> str | None:
+def process_replies(
+    token: str,
+    admin_id: str,
+    state: CommunityState,
+    *,
+    timeout: int = 0,
+) -> str | None:
+    """timeout>0 = Telegram long-poll: ответ да/нет приходит сразу, без ожидания крона."""
     offset = int(state.data.get("update_offset") or 0)
     url = f"https://api.telegram.org/bot{token}/getUpdates"
-    with httpx.Client(timeout=20) as client:
+    wait = max(0, min(int(timeout), 50))
+    with httpx.Client(timeout=wait + 15) as client:
         data = client.get(
             url,
-            params={"offset": offset, "timeout": 0, "allowed_updates": json.dumps(["message"])},
+            params={
+                "offset": offset,
+                "timeout": wait,
+                "allowed_updates": json.dumps(["message"]),
+            },
         ).json()
     if not data.get("ok"):
         logger.warning("getUpdates: %s", data)
@@ -1135,8 +1147,15 @@ def offer_ready_draft(
     return True
 
 
-def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new: bool = False) -> None:
-    decision = process_replies(token, admin_id, state)
+def run_community(
+    token: str,
+    admin_id: str,
+    state: CommunityState,
+    *,
+    offer_new: bool = False,
+    poll_timeout: int = 0,
+) -> None:
+    decision = process_replies(token, admin_id, state, timeout=poll_timeout)
     pending = state.pending()
     if pending and not pending.get("offered_at"):
         pending["offered_at"] = datetime.now(timezone.utc).isoformat()
@@ -1150,6 +1169,8 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
         ):
             state.set_pending(None)
             pending = None
+            state.data["need_offer"] = False
+            state.save()
         else:
             return
 
@@ -1157,19 +1178,21 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
         if publish_pending(token, admin_id, pending, "выложил в Telegram и Discord."):
             state.set_pending(None)
             pending = None
+            state.data["need_offer"] = False
+            state.save()
         else:
             return
     elif decision == "no":
         rejected = pending or {}
         # чтобы после «нет» не предложить тот же боевой клир снова
         recent = [str(item) for item in (state.data.get("recent_topics") or [])]
-        recent.append("combat" if rejected.get("kind") in {"daily", "community"} else "combat")
-        # если в тексте явно башня/клир — помечаем жанр
+        recent.append("combat")
         blob = f"{rejected.get('title', '')}\n{rejected.get('text', '')}".lower()
         if re.search(r"\btoa\b|башн|s0r?\d|закрыл|прошёл|прошел", blob):
             recent.append("combat")
             recent.append("toa")
         state.data["recent_topics"] = recent[-20:]
+        state.data["need_offer"] = True
         state.set_pending(None)
         pending = None
         send_dm(token, admin_id, "ок, ищу другой — без башни/клиров.")
@@ -1191,6 +1214,9 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
         )
         return
 
+    if state.data.get("need_offer") and not state.pending():
+        offer_new = True
+
     if not offer_new:
         return
 
@@ -1200,13 +1226,21 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
             if not nxt:
                 break
             # после отказа от клира — не предлагаем combat/toa сразу
-            if decision == "no" and primary_topic(nxt) in {"toa", "combat", "whiwa"}:
+            if (decision == "no" or state.data.get("need_offer")) and primary_topic(nxt) in {
+                "toa",
+                "combat",
+                "whiwa",
+            }:
                 state.mark_skip(nxt)
                 logger.info("после отказа пропускаю клир: %s", nxt.get("title"))
                 continue
             if offer_post(token, admin_id, state, nxt):
+                state.data["need_offer"] = False
+                state.save()
                 return
-        if decision == "no":
-            send_dm(token, admin_id, "свежего небашенного пока нет, гляну ещё на следующем круге.")
+        if decision == "no" or state.data.get("need_offer"):
+            # не сдаёмся — need_offer остаётся, следующий круг long-poll сразу продолжит поиск
+            send_dm(token, admin_id, "пока пусто, ищу дальше…")
+            logger.info("need_offer: кандидата нет, продолжу на следующем круге")
         else:
             logger.info("интересного с форумов нет")

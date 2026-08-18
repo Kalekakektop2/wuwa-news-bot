@@ -482,16 +482,31 @@ def main() -> int:
             logger.exception("ошибка мониторинга сообщества")
         return 0
 
-    logger.info("пикabu-бот запущен, пишу только в личку %s, интервал %s сек", admin_id, interval)
+    from community import CommunityState, run_community
+
+    logger.info(
+        "pikabu live-режим: long-poll Telegram, ответы да/нет сразу. официалка раз в %s сек",
+        interval,
+    )
+    last_official = 0.0
     while True:
         try:
-            poll_once(token, admin_id, store, force_latest=False)
-            from community import CommunityState, run_community
-
-            run_community(token, admin_id, CommunityState(state_path))
+            state = CommunityState(state_path)
+            # если ждём ответ — висим на long-poll до 25с и реагируем мгновенно
+            poll_timeout = 25 if state.pending() or state.data.get("need_offer") else 8
+            run_community(
+                token,
+                admin_id,
+                state,
+                poll_timeout=poll_timeout,
+            )
+            now = time.time()
+            if now - last_official >= interval:
+                poll_once(token, admin_id, store, force_latest=False)
+                last_official = now
         except Exception:
             logger.exception("ошибка цикла")
-        time.sleep(interval)
+            time.sleep(3)
 
 
 if __name__ == "__main__":
