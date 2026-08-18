@@ -84,9 +84,9 @@ FEEDS = [
     "https://www.reddit.com/r/WutheringWaves/search.rss?q=record+OR+cleared+OR+toa+OR+whiwa&restrict_sr=1&sort=new",
 ]
 JSON_FEEDS = [
-    "https://old.reddit.com/r/WutheringWaves/new.json?limit=40",
-    "https://old.reddit.com/r/WutheringWaves/top.json?t=week&limit=25",
-    "https://old.reddit.com/r/WutheringWaves/search.json?q=fanart+OR+cosplay+OR+showcase+OR+lore&restrict_sr=1&sort=new&limit=25",
+    "https://www.reddit.com/r/WutheringWaves/new.json?limit=40",
+    "https://www.reddit.com/r/WutheringWaves/top.json?t=week&limit=25",
+    "https://www.reddit.com/r/WutheringWaves/search.json?q=fanart+OR+cosplay+OR+showcase+OR+lore&restrict_sr=1&sort=new&limit=25",
 ]
 HEADERS = {
     "user-agent": "Mozilla/5.0 (compatible; wuwa-news-bot/1.2; +https://github.com/Kalekakektop2/wuwa-news-bot)"
@@ -167,11 +167,11 @@ def topic_keys(title: str, summary: str = "") -> list[str]:
         keys.append("lore")
     if re.search(r"\bbuild\b|rotation|echo set|guide|сборк|гайд|ротац", blob):
         keys.append("build")
-    if re.search(r"gacha|pull|won 50|lost 50|c6|s6|выбил|крутк", blob):
+    if re.search(r"gacha|\bpulls?\b|won 50|lost 50|\bc6\b|\bs6\b|выбил|крутк", blob):
         keys.append("gacha")
-    if re.search(r"music|cover|ost|soundtrack|музыка", blob):
+    if re.search(r"\bmusic\b|\bcover\b|\bost\b|soundtrack|музыка", blob):
         keys.append("music")
-    if re.search(r"animation|animated|clip|edit|анимац|клип", blob):
+    if re.search(r"animation|animated|\bclip\b|\bedit\b|анимац|\bклип\b", blob):
         keys.append("animation")
     if re.search(r"exploration|puzzle|hidden|chest|map|нашёл|нашел|исследован", blob):
         keys.append("explore")
@@ -301,7 +301,7 @@ def fetch_posts(client: httpx.Client) -> list[dict]:
     seen: set[str] = set()
     for url in FEEDS:
         try:
-            response = client.get(url, headers=HEADERS, timeout=20)
+            response = client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
             if response.status_code >= 400 or not response.text.strip():
                 continue
             for post in parse_reddit_rss(response.text):
@@ -314,7 +314,7 @@ def fetch_posts(client: httpx.Client) -> list[dict]:
     # JSON тоже всегда — иначе поиск залипает на одной RSS-выборке
     for url in JSON_FEEDS:
         try:
-            response = client.get(url, headers=HEADERS, timeout=20)
+            response = client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
             if response.status_code >= 400 or not response.text.strip():
                 logger.warning("json лента %s: %s", url, response.status_code)
                 continue
@@ -963,9 +963,13 @@ def diversity_score(post: dict, state: CommunityState) -> int:
     if topic not in {"toa", "whiwa"}:
         score += 20
     if topic in {"fanart", "cosplay", "lore", "animation", "music", "build", "collection"}:
-        score += 15
+        score += 25
+    if topic in {"showcase", "boss", "gacha", "holo", "explore"}:
+        score += 10
     if topic == "toa":
-        score -= 25
+        score -= 40
+    if "toa" in (post.get("topics") or []):
+        score -= 20
     if post.get("image"):
         score += 5
     return score
@@ -1122,7 +1126,7 @@ def run_community(token: str, admin_id: str, state: CommunityState, *, offer_new
     if not offer_new:
         return
 
-    with httpx.Client() as client:
+    with httpx.Client(follow_redirects=True, timeout=30) as client:
         for _ in range(8):
             nxt = find_next(client, state)
             if not nxt:
