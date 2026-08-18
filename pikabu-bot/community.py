@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -254,14 +255,33 @@ def is_useful(post: dict) -> bool:
     return has_what and has_detail and len(blob.strip()) >= 20
 
 
+_REDDIT_BLOCK_UNTIL = 0.0
+
+
+def reddit_is_blocked() -> bool:
+    return time.time() < _REDDIT_BLOCK_UNTIL
+
+
+def _mark_reddit_blocked(seconds: int = 90) -> None:
+    global _REDDIT_BLOCK_UNTIL
+    _REDDIT_BLOCK_UNTIL = max(_REDDIT_BLOCK_UNTIL, time.time() + seconds)
+    logger.warning("reddit временно недоступен, пауза %s сек", seconds)
+
+
 def enrich_post(client: httpx.Client, post: dict) -> dict:
+    """Дочитываем reddit только если не в бане; иначе оставляем RSS-данные."""
+    if reddit_is_blocked():
+        return post
     rid = reddit_id(post["url"])
     try:
         response = client.get(
             f"https://www.reddit.com/comments/{rid}.json",
-            headers={"user-agent": "wuwa-community-bot/1.0"},
-            timeout=20,
+            headers=HEADERS,
+            timeout=8,
         )
+        if response.status_code in {403, 429}:
+            _mark_reddit_blocked(120 if response.status_code == 429 else 60)
+            return post
         if response.status_code >= 400:
             return post
         child = response.json()[0]["data"]["children"][0]["data"]
@@ -1043,30 +1063,38 @@ def diversity_score(post: dict, state: CommunityState) -> int:
 
 def find_next(client: httpx.Client, state: CommunityState) -> dict | None:
     posts = fetch_posts(client)
-    candidates: list[dict] = []
+    rough: list[dict] = []
     for post in posts:
         if state.already_offered(post) or state.skip_seen(post):
-            continue
-        post = enrich_post(client, post)
-        if state.already_offered(post) or state.topic_overused(post):
             continue
         blob = f"{post.get('title', '')}\n{post.get('summary', '')}"
         if SKIP.search(blob):
             state.mark_skip(post)
             continue
-        if not is_useful(post):
-            # не пишем в skip навсегда — иначе выжигаем весь reddit за вечер
-            logger.info("слабо: %s", post.get("title"))
+        if state.topic_overused(post) or not is_useful(post):
             continue
-        candidates.append(post)
-    if not candidates:
+        rough.append(post)
+    if not rough:
         return None
-    candidates.sort(key=lambda item: diversity_score(item, state), reverse=True)
-    chosen = candidates[0]
+    rough.sort(key=lambda item: diversity_score(item, state), reverse=True)
+
+    # не долбим reddit: дочитываем только топ-5, при бане берём RSS as-is
+    for post in rough[:5]:
+        enriched = enrich_post(client, post)
+        if state.topic_overused(enriched) or not is_useful(enriched):
+            continue
+        logger.info(
+            "выбрал фан-пост [%s] score=%s: %s",
+            primary_topic(enriched),
+            diversity_score(enriched, state),
+            enriched.get("title"),
+        )
+        return enriched
+
+    chosen = rough[0]
     logger.info(
-        "выбрал фан-пост [%s] score=%s: %s",
+        "выбрал по RSS без дочитки [%s]: %s",
         primary_topic(chosen),
-        diversity_score(chosen, state),
         chosen.get("title"),
     )
     return chosen

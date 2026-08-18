@@ -492,14 +492,15 @@ def main() -> int:
     while True:
         try:
             state = CommunityState(state_path)
-            # если ждём ответ — висим на long-poll до 25с и реагируем мгновенно
-            poll_timeout = 25 if state.pending() or state.data.get("need_offer") else 8
-            run_community(
-                token,
-                admin_id,
-                state,
-                poll_timeout=poll_timeout,
-            )
+            if state.pending():
+                # ждём да/нет — long-poll, без тяжёлого поиска reddit
+                run_community(token, admin_id, state, poll_timeout=25)
+            elif state.data.get("need_offer"):
+                # сначала быстрый check ответов, потом сразу поиск
+                run_community(token, admin_id, state, poll_timeout=0, offer_new=True)
+                time.sleep(4)
+            else:
+                run_community(token, admin_id, state, poll_timeout=10)
             now = time.time()
             if now - last_official >= interval:
                 poll_once(token, admin_id, store, force_latest=False)
