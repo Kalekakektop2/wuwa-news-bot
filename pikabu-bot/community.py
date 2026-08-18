@@ -27,17 +27,17 @@ FOOTER = (
 )
 
 KEEP = re.compile(
-    r"(record|showcase|collection|collect|meta|tier|hologram|tower|"
+    r"(record|showcase|collection|collect|meta|hologram|tower|"
     r"whimpering|clear|cleared|roster|gallery|speedrun|first clear|"
     r"full team|all resonator|all character|c6|r6|s6|100%|completion|"
     r"union level|ul\s*\d+|whale|title|achievement|\btoa\b|whiwa|"
-    r"fan\s*art|fanart|illustration|drew|drawing|cosplay|lore|theory|"
-    r"build|rotation|guide|echo set|music|cover|ost|animation|animated|"
-    r"edit|clip|exploration|puzzle|hidden|boss|weekly|gacha|pull|"
-    r"got (her|him|them)|won 50|lost 50|cinematic|comic|oc\b|"
+    r"build|rotation|guide|echo set|"
+    r"exploration|puzzle|hidden|boss|weekly|gacha|pull|"
+    r"got (her|him|them)|won 50|lost 50|clip|gameplay|in[- ]?game|"
+    r"screenshot|screen\s*shot|bug|glitch|funny moment|happened|"
     r"рекорд|коллекц|мет[аы]|башн|голограмм|витрина|собрал|прошёл|прошел|"
-    r"фан.?арт|косплей|лор|сборк|гайд|музыка|анимац|клип|эхо|босс|"
-    r"крутк|выбил|нашёл|нашел|исследование)",
+    r"сборк|гайд|клип|эхо|босс|крутк|выбил|нашёл|нашел|исследование|"
+    r"геймплей|скрин|момент)",
     re.I,
 )
 SKIP = re.compile(
@@ -45,7 +45,10 @@ SKIP = re.compile(
     r"who should i pull|should i pull|wutheringwavesmod|selling|account|"
     r"broke up|girlfriend|boyfriend|\bgf\b|\bbf\b|drama|"
     r"daily questions|weekly questions|rate my|tier list discussion|"
-    r"how to learn|how do i|can someone help|need advice)",
+    r"how to learn|how do i|can someone help|need advice|"
+    r"cosplay|fan\s*art|fanart|illustration|drew|drawing|\boc\b|"
+    r"comic|commission|mermaid|convention|mcm|world tour|ticket|"
+    r"косплей|фан.?арт|арт\b|рисунок|нарисова)",
     re.I,
 )
 YES = re.compile(r"^\s*(да+|давай|выкладывай|публикуй|ок|okay|yes)\b", re.I)
@@ -57,16 +60,17 @@ TOA_WINDOW = 4  # не больше 1 ToA/combat среди последних N
 
 REWRITE = """
 Ты админ русскоязычного фан-канала по Wuthering Waves (вува).
-Нужен короткий пост про интересное с фан-форума. Это НЕ официалка Kuro.
+Нужен короткий пост ТОЛЬКО про внутриигровой момент. Это НЕ официалка Kuro.
 
-Темы могут быть разными: прохождение, витрина, фан-арт, косплей, сборка/ротация,
-удачный крут, лор/теория, клип/анимация, находка в мире, босс, музыка — не только башня.
+Подходит: прохождение, витрина в игре, сборка/ротация, удачный крут,
+находка в мире, босс/голограмма, смешной/редкий игровой момент, скрин из игры.
+НЕ подходит: косплей, фан-арт, рисунки, оффлайн-встречи, мемы без игры.
 
 Тон: живой, спокойный, как человек. Без кринжа, без «брооо», без канцелярита.
 Ничего не выдумывай: цифры, ники, факты — только если они есть во входе.
 Имена героев можно оставить как есть.
 
-Если во входе нет одновременно: кто (ник/автор) и что интересного — верни только слово SKIP.
+Если это не внутриигровой момент или нет одновременно кто+что — верни только слово SKIP.
 
 Формат:
 - в первом абзаце обязательно автор и суть
@@ -81,15 +85,14 @@ REWRITE = """
 FEEDS = [
     "https://www.reddit.com/r/WutheringWaves/new/.rss",
     "https://www.reddit.com/r/WutheringWaves/top/.rss?t=week",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=fanart+OR+%22fan+art%22+OR+cosplay&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=lore+OR+theory+OR+showcase+OR+build+OR+guide&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=hologram+OR+collection+OR+music+OR+animated+OR+amv&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=record+OR+cleared+OR+toa+OR+whiwa&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=showcase+OR+build+OR+guide+OR+gameplay&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=hologram+OR+collection+OR+echo+OR+exploration&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=record+OR+cleared+OR+toa+OR+whiwa+OR+pull&restrict_sr=1&sort=new",
 ]
 JSON_FEEDS = [
     "https://www.reddit.com/r/WutheringWaves/new.json?limit=40",
     "https://www.reddit.com/r/WutheringWaves/top.json?t=week&limit=25",
-    "https://www.reddit.com/r/WutheringWaves/search.json?q=fanart+OR+cosplay+OR+showcase+OR+lore&restrict_sr=1&sort=new&limit=25",
+    "https://www.reddit.com/r/WutheringWaves/search.json?q=showcase+OR+gameplay+OR+build+OR+hologram&restrict_sr=1&sort=new&limit=25",
 ]
 HEADERS = {
     "user-agent": "Mozilla/5.0 (compatible; wuwa-news-bot/1.2; +https://github.com/Kalekakektop2/wuwa-news-bot)"
@@ -162,37 +165,26 @@ def topic_keys(title: str, summary: str = "") -> list[str]:
         keys.append("endstate")
     if re.search(r"100%|коллекц|all resonator|all character|completion", blob):
         keys.append("collection")
-    if re.search(r"fan\s*art|fanart|illustration|drew|drawing|фан.?арт", blob):
-        keys.append("fanart")
-    if re.search(r"cosplay|косплей", blob):
-        keys.append("cosplay")
-    if re.search(r"\blore\b|theory|story discussion|лор", blob):
-        keys.append("lore")
     if re.search(r"\bbuild\b|rotation|echo set|guide|сборк|гайд|ротац", blob):
         keys.append("build")
     if re.search(r"gacha|\bpulls?\b|won 50|lost 50|\bc6\b|\bs6\b|выбил|крутк", blob):
         keys.append("gacha")
-    if re.search(r"\bmusic\b|\bcover\b|\bost\b|soundtrack|музыка", blob):
-        keys.append("music")
     if re.search(
-        r"animated|fan animation|animation edit|\bamv\b|animatic|анимац|\bклип\b",
+        r"gameplay|\bclip\b|funny moment|happened|glitch|in[- ]?game|скрин|геймплей|момент",
         blob,
     ):
-        keys.append("animation")
+        keys.append("moment")
     if re.search(r"exploration|puzzle|hidden|chest|map|нашёл|нашел|исследован", blob):
         keys.append("explore")
     if re.search(r"\bboss\b|weekly challenge|босс", blob) and "toa" not in keys:
         keys.append("boss")
     if re.search(r"showcase|витрин", blob) and "toa" not in keys:
         keys.append("showcase")
-    # прохождение/клиры (в т.ч. S0R1) — отдельный жанр, чтобы не путать с фан-артом
-    if (
-        re.search(
-            r"\bs0r?\d\b|\bc0\b|full clear|team clear|cleared|can still do it|"
-            r"mid\s*[1-4]|over\s*[1-4]|hazard\s*[1-4]|закрыл|прошёл|прошел",
-            blob,
-        )
-        and not {"fanart", "cosplay", "lore", "music", "animation"} & set(keys)
+    # прохождение/клиры (в т.ч. S0R1)
+    if re.search(
+        r"\bs0r?\d\b|\bc0\b|full clear|team clear|cleared|can still do it|"
+        r"mid\s*[1-4]|over\s*[1-4]|hazard\s*[1-4]|закрыл|прошёл|прошел",
+        blob,
     ):
         keys.append("combat")
     return keys
@@ -201,16 +193,12 @@ def topic_keys(title: str, summary: str = "") -> list[str]:
 def primary_topic(post: dict) -> str:
     topics = post.get("topics") or []
     for preferred in (
-        "fanart",
-        "cosplay",
-        "lore",
-        "animation",
-        "music",
+        "moment",
+        "explore",
         "build",
         "collection",
         "gacha",
         "holo",
-        "explore",
         "boss",
         "showcase",
         "endstate",
@@ -237,10 +225,9 @@ def is_useful(post: dict) -> bool:
     has_what = bool(
         re.search(
             r"(clear|cleared|record|speedrun|hologram|tower|toa|showcase|collection|"
-            r"fan\s*art|fanart|cosplay|lore|build|guide|music|animation|clip|edit|"
-            r"exploration|boss|gacha|pull|drew|illustration|"
-            r"собрал|прошёл|прошел|рекорд|башн|голограмм|витрин|фан.?арт|косплей|"
-            r"лор|сборк|гайд|музыка|анимац|клип|эхо|босс|выбил|нашёл|нашел)",
+            r"build|guide|clip|gameplay|exploration|boss|gacha|pull|glitch|moment|"
+            r"собрал|прошёл|прошел|рекорд|башн|голограмм|витрин|"
+            r"сборк|гайд|клип|эхо|босс|выбил|нашёл|нашел|геймплей|скрин)",
             blob,
             re.I,
         )
@@ -248,7 +235,7 @@ def is_useful(post: dict) -> bool:
     has_detail = bool(
         re.search(
             r"(\b[A-Z][a-z]{2,}\b|\b\d+\b|mid\s*[1-4]|floor|этаж|"
-            r"iuno|qingxiao|jingran|fanart|cosplay|screenshot|art)",
+            r"iuno|qingxiao|jingran|screenshot|gameplay)",
             blob,
         )
     )
@@ -430,16 +417,14 @@ def rewrite(post: dict) -> str:
         logger.exception("рерайт сообщества не вышел")
         # для арта/косплея/лора лучше простой текст, чем тишина
         if primary_topic(post) in {
-            "fanart",
-            "cosplay",
-            "lore",
-            "animation",
-            "music",
+            "moment",
             "build",
             "collection",
             "gacha",
             "explore",
             "showcase",
+            "holo",
+            "boss",
             "other",
         }:
             return fallback_text(post)
@@ -982,16 +967,14 @@ def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> 
         return False
     body = rewrite(post)
     soft = primary_topic(post) in {
-        "fanart",
-        "cosplay",
-        "lore",
-        "animation",
-        "music",
+        "moment",
         "build",
         "collection",
         "gacha",
         "explore",
         "showcase",
+        "holo",
+        "boss",
         "other",
     }
     if not body:
@@ -1046,18 +1029,16 @@ def diversity_score(post: dict, state: CommunityState) -> int:
         score += 30
     if topic not in {"toa", "whiwa", "combat"}:
         score += 20
-    if topic in {"fanart", "cosplay", "lore", "animation", "music", "build", "collection"}:
+    if topic in {"moment", "explore", "build", "collection", "holo"}:
         score += 35
-    if topic in {"showcase", "boss", "gacha", "holo", "explore"}:
-        score += 10
+    if topic in {"showcase", "boss", "gacha"}:
+        score += 15
     if topic in {"toa", "combat"}:
         score -= 50
     if {"toa", "combat"} & set(post.get("topics") or []):
         score -= 25
-    if post.get("image") and topic in {"fanart", "cosplay", "animation", "music"}:
-        score += 10
-    elif post.get("image"):
-        score += 3
+    if post.get("image"):
+        score += 5
     return score
 
 

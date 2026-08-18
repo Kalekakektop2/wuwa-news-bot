@@ -158,19 +158,20 @@ def html_to_text(raw: str) -> str:
 
 
 COMMUNITY_KEEP = re.compile(
-    r"(record|showcase|collection|collect|meta|tier|hologram|tower|"
+    r"(record|showcase|collection|collect|meta|hologram|tower|"
     r"whimpering|clear|cleared|roster|gallery|speedrun|first clear|"
     r"full team|all resonator|all character|c6|s6|100%|completion|"
-    r"fan\s*art|fanart|cosplay|lore|build|guide|music|animation|clip|"
-    r"exploration|boss|gacha|pull|illustration|"
+    r"build|guide|clip|gameplay|exploration|boss|gacha|pull|"
     r"рекорд|коллекц|мет[аы]|башн|голограмм|витрина|собрал|"
-    r"фан.?арт|косплей|лор|сборк|гайд|музыка|анимац|клип)",
+    r"сборк|гайд|клип|геймплей|скрин)",
     re.I,
 )
 COMMUNITY_SKIP = re.compile(
     r"(megathread|giveaway|leak|nsfw|porn|code redeem|looking for|"
     r"who should i pull|should i pull|wutheringwavesmod|"
-    r"daily questions|weekly questions)",
+    r"daily questions|weekly questions|"
+    r"cosplay|fan\s*art|fanart|illustration|drew|drawing|convention|"
+    r"косплей|фан.?арт)",
     re.I,
 )
 
@@ -220,8 +221,8 @@ def fetch_community(client: httpx.Client, state: State) -> dict | None:
         "user-agent": "wuwa-daily/1.0 (fan news; +https://github.com/Kalekakektop2/wuwa-news-bot)"
     }
     urls = [
-        "https://www.reddit.com/r/WutheringWaves/search.rss?q=fanart+OR+cosplay+OR+lore+OR+build+OR+showcase&restrict_sr=1&sort=new",
-        "https://www.reddit.com/r/WutheringWaves/search.rss?q=collection+OR+music+OR+animation+OR+guide+OR+hologram&restrict_sr=1&sort=new",
+        "https://www.reddit.com/r/WutheringWaves/search.rss?q=showcase+OR+build+OR+guide+OR+gameplay&restrict_sr=1&sort=new",
+        "https://www.reddit.com/r/WutheringWaves/search.rss?q=collection+OR+hologram+OR+echo+OR+exploration&restrict_sr=1&sort=new",
         "https://www.reddit.com/r/WutheringWaves/top/.rss?t=week",
         "https://www.reddit.com/r/WutheringWaves/.rss",
     ]
