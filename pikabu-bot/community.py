@@ -43,7 +43,8 @@ SKIP = re.compile(
     r"(megathread|giveaway|leak|nsfw|porn|code redeem|looking for|"
     r"who should i pull|should i pull|wutheringwavesmod|selling|account|"
     r"broke up|girlfriend|boyfriend|\bgf\b|\bbf\b|drama|"
-    r"daily questions|weekly questions|rate my|tier list discussion)",
+    r"daily questions|weekly questions|rate my|tier list discussion|"
+    r"how to learn|how do i|can someone help|need advice)",
     re.I,
 )
 YES = re.compile(r"^\s*(да+|давай|выкладывай|публикуй|ок|okay|yes)\b", re.I)
@@ -79,8 +80,9 @@ REWRITE = """
 FEEDS = [
     "https://www.reddit.com/r/WutheringWaves/new/.rss",
     "https://www.reddit.com/r/WutheringWaves/top/.rss?t=week",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=fanart+OR+cosplay+OR+showcase+OR+lore+OR+build&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=hologram+OR+collection+OR+music+OR+animation+OR+guide&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=fanart+OR+%22fan+art%22+OR+cosplay&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=lore+OR+theory+OR+showcase+OR+build+OR+guide&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=hologram+OR+collection+OR+music+OR+animated+OR+amv&restrict_sr=1&sort=new",
     "https://www.reddit.com/r/WutheringWaves/search.rss?q=record+OR+cleared+OR+toa+OR+whiwa&restrict_sr=1&sort=new",
 ]
 JSON_FEEDS = [
@@ -171,13 +173,19 @@ def topic_keys(title: str, summary: str = "") -> list[str]:
         keys.append("gacha")
     if re.search(r"\bmusic\b|\bcover\b|\bost\b|soundtrack|музыка", blob):
         keys.append("music")
-    if re.search(r"animation|animated|\bclip\b|\bedit\b|анимац|\bклип\b", blob):
+    if re.search(
+        r"animated|fan animation|animation edit|\bamv\b|animatic|анимац|\bклип\b",
+        blob,
+    ):
         keys.append("animation")
     if re.search(r"exploration|puzzle|hidden|chest|map|нашёл|нашел|исследован", blob):
         keys.append("explore")
     if re.search(r"\bboss\b|weekly challenge|босс", blob) and "toa" not in keys:
         keys.append("boss")
-    if re.search(r"showcase|витрин", blob) and "toa" not in keys:
+    if re.search(
+        r"showcase|витрин|\bs0r?\d\b|\bc0\b|full clear|team clear",
+        blob,
+    ) and "toa" not in keys:
         keys.append("showcase")
     return keys
 
