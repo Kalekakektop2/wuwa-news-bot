@@ -30,31 +30,44 @@ KEEP = re.compile(
     r"whimpering|clear|cleared|roster|gallery|speedrun|first clear|"
     r"full team|all resonator|all character|c6|r6|s6|100%|completion|"
     r"union level|ul\s*\d+|whale|title|achievement|\btoa\b|whiwa|"
-    r"рекорд|коллекц|мет[аы]|башн|голограмм|витрина|собрал|прошёл|прошел)",
+    r"fan\s*art|fanart|illustration|drew|drawing|cosplay|lore|theory|"
+    r"build|rotation|guide|echo set|music|cover|ost|animation|animated|"
+    r"edit|clip|exploration|puzzle|hidden|boss|weekly|gacha|pull|"
+    r"got (her|him|them)|won 50|lost 50|cinematic|comic|oc\b|"
+    r"рекорд|коллекц|мет[аы]|башн|голограмм|витрина|собрал|прошёл|прошел|"
+    r"фан.?арт|косплей|лор|сборк|гайд|музыка|анимац|клип|эхо|босс|"
+    r"крутк|выбил|нашёл|нашел|исследование)",
     re.I,
 )
 SKIP = re.compile(
     r"(megathread|giveaway|leak|nsfw|porn|code redeem|looking for|"
     r"who should i pull|should i pull|wutheringwavesmod|selling|account|"
-    r"broke up|girlfriend|boyfriend|\bgf\b|\bbf\b|drama|\[bug\]|\bbug\b)",
+    r"broke up|girlfriend|boyfriend|\bgf\b|\bbf\b|drama|"
+    r"daily questions|weekly questions|rate my|tier list discussion)",
     re.I,
 )
 YES = re.compile(r"^\s*(да+|давай|выкладывай|публикуй|ок|okay|yes)\b", re.I)
 NO = re.compile(r"^\s*(нет|не\s+надо|skip|дальше|no)\b", re.I)
 APPROVE_SECONDS = 3600
+# после одного такого поста не спамим тем же жанром подряд
+COOLDOWN_TOPICS = {"toa", "whiwa"}
+TOA_WINDOW = 4  # не больше 1 ToA среди последних N community-предложек
 
 REWRITE = """
 Ты админ русскоязычного фан-канала по Wuthering Waves (вува).
-Нужен короткий пост про то, что сделал игрок. Это НЕ официалка Kuro.
+Нужен короткий пост про интересное с фан-форума. Это НЕ официалка Kuro.
+
+Темы могут быть разными: прохождение, витрина, фан-арт, косплей, сборка/ротация,
+удачный крут, лор/теория, клип/анимация, находка в мире, босс, музыка — не только башня.
 
 Тон: живой, спокойный, как человек. Без кринжа, без «брооо», без канцелярита.
-Ничего не выдумывай: цифры, ники, рекорды — только если они есть во входе.
+Ничего не выдумывай: цифры, ники, факты — только если они есть во входе.
 Имена героев можно оставить как есть.
 
-Если во входе нет одновременно: кто (ник) и что сделал (башня/голограмма/рекорд/коллекция/этаж) — верни только слово SKIP.
+Если во входе нет одновременно: кто (ник/автор) и что интересного — верни только слово SKIP.
 
 Формат:
-- в первом абзаце обязательно ник и что именно прошёл/собрал
+- в первом абзаце обязательно автор и суть
 - затем «Коротко:» и 3–6 пунктов с дефисом
 - в конце один раз: источник — URL
 - строка: это не официалка Kuro
@@ -66,11 +79,14 @@ REWRITE = """
 FEEDS = [
     "https://www.reddit.com/r/WutheringWaves/new/.rss",
     "https://www.reddit.com/r/WutheringWaves/top/.rss?t=week",
-    "https://www.reddit.com/r/WutheringWaves/search.rss?q=showcase+OR+record+OR+hologram+OR+toa+OR+cleared&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=fanart+OR+cosplay+OR+showcase+OR+lore+OR+build&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=hologram+OR+collection+OR+music+OR+animation+OR+guide&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/WutheringWaves/search.rss?q=record+OR+cleared+OR+toa+OR+whiwa&restrict_sr=1&sort=new",
 ]
 JSON_FEEDS = [
-    "https://old.reddit.com/r/WutheringWaves/new.json?limit=25",
-    "https://old.reddit.com/r/WutheringWaves/top.json?t=week&limit=15",
+    "https://old.reddit.com/r/WutheringWaves/new.json?limit=40",
+    "https://old.reddit.com/r/WutheringWaves/top.json?t=week&limit=25",
+    "https://old.reddit.com/r/WutheringWaves/search.json?q=fanart+OR+cosplay+OR+showcase+OR+lore&restrict_sr=1&sort=new&limit=25",
 ]
 HEADERS = {
     "user-agent": "Mozilla/5.0 (compatible; wuwa-news-bot/1.2; +https://github.com/Kalekakektop2/wuwa-news-bot)"
@@ -132,18 +148,62 @@ def reddit_id(url: str) -> str:
 def topic_keys(title: str, summary: str = "") -> list[str]:
     blob = f"{title} {summary}".lower()
     keys: list[str] = []
+    # одна семья на всю башню — иначе вечный спам разными этажами
     if re.search(r"\btoa\b|tower of adversity|башн", blob):
-        floor = re.search(r"(mid|over|hazard|side)?\s*([1-4])", blob)
-        keys.append("toa-" + re.sub(r"\s+", "", floor.group(0)) if floor else "toa")
+        keys.append("toa")
     if re.search(r"whiwa|whimpering", blob):
         keys.append("whiwa")
     if re.search(r"hologram|голограмм", blob):
         keys.append("holo")
     if re.search(r"endstate matrix", blob):
         keys.append("endstate")
-    if re.search(r"100%|коллекц|all resonator|all character", blob):
+    if re.search(r"100%|коллекц|all resonator|all character|completion", blob):
         keys.append("collection")
+    if re.search(r"fan\s*art|fanart|illustration|drew|drawing|фан.?арт", blob):
+        keys.append("fanart")
+    if re.search(r"cosplay|косплей", blob):
+        keys.append("cosplay")
+    if re.search(r"\blore\b|theory|story discussion|лор", blob):
+        keys.append("lore")
+    if re.search(r"\bbuild\b|rotation|echo set|guide|сборк|гайд|ротац", blob):
+        keys.append("build")
+    if re.search(r"gacha|pull|won 50|lost 50|c6|s6|выбил|крутк", blob):
+        keys.append("gacha")
+    if re.search(r"music|cover|ost|soundtrack|музыка", blob):
+        keys.append("music")
+    if re.search(r"animation|animated|clip|edit|анимац|клип", blob):
+        keys.append("animation")
+    if re.search(r"exploration|puzzle|hidden|chest|map|нашёл|нашел|исследован", blob):
+        keys.append("explore")
+    if re.search(r"\bboss\b|weekly challenge|босс", blob) and "toa" not in keys:
+        keys.append("boss")
+    if re.search(r"showcase|витрин", blob) and "toa" not in keys:
+        keys.append("showcase")
     return keys
+
+
+def primary_topic(post: dict) -> str:
+    topics = post.get("topics") or []
+    for preferred in (
+        "fanart",
+        "cosplay",
+        "lore",
+        "animation",
+        "music",
+        "build",
+        "collection",
+        "gacha",
+        "holo",
+        "explore",
+        "boss",
+        "showcase",
+        "endstate",
+        "whiwa",
+        "toa",
+    ):
+        if preferred in topics:
+            return preferred
+    return topics[0] if topics else "other"
 
 
 def is_useful(post: dict) -> bool:
@@ -159,14 +219,19 @@ def is_useful(post: dict) -> bool:
         return False
     has_what = bool(
         re.search(
-            r"(clear|cleared|record|speedrun|hologram|tower|toa|showcase|collection|собрал|прошёл|прошел|рекорд|башн|голограмм|витрин)",
+            r"(clear|cleared|record|speedrun|hologram|tower|toa|showcase|collection|"
+            r"fan\s*art|fanart|cosplay|lore|build|guide|music|animation|clip|edit|"
+            r"exploration|boss|gacha|pull|drew|illustration|"
+            r"собрал|прошёл|прошел|рекорд|башн|голограмм|витрин|фан.?арт|косплей|"
+            r"лор|сборк|гайд|музыка|анимац|клип|эхо|босс|выбил|нашёл|нашел)",
             blob,
             re.I,
         )
     )
     has_detail = bool(
         re.search(
-            r"(\b[A-Z][a-z]{2,}\b|\b\d+\b|mid\s*[1-4]|floor|этаж|iuno|qingxiao|jingran)",
+            r"(\b[A-Z][a-z]{2,}\b|\b\d+\b|mid\s*[1-4]|floor|этаж|"
+            r"iuno|qingxiao|jingran|fanart|cosplay|screenshot|art)",
             blob,
         )
     )
@@ -246,8 +311,7 @@ def fetch_posts(client: httpx.Client) -> list[dict]:
                 posts.append(post)
         except Exception as exc:
             logger.warning("лента сообщества: %s", exc)
-    if posts:
-        return posts
+    # JSON тоже всегда — иначе поиск залипает на одной RSS-выборке
     for url in JSON_FEEDS:
         try:
             response = client.get(url, headers=HEADERS, timeout=20)
@@ -337,7 +401,9 @@ def draft_is_concrete(text: str, post: dict) -> bool:
     has_who = bool(author and author in low) or "игрок" in low or bool(post.get("author"))
     has_what = bool(
         re.search(
-            r"(башн|toa|голограмм|рекорд|собрал|прошёл|прошел|этаж|коллекц|витрин|закрыл)",
+            r"(башн|toa|голограмм|рекорд|собрал|прошёл|прошел|этаж|коллекц|витрин|закрыл|"
+            r"арт|косплей|сборк|гайд|крут|гача|лор|клип|анимац|музык|эхо|босс|"
+            r"нашёл|нашел|выложил|показал|нарисова|фан)",
             low,
         )
     )
@@ -367,6 +433,7 @@ class CommunityState:
             "offered_ids": [],
             "skip_ids": [],
             "topic_keys": [],
+            "recent_topics": [],
             "update_offset": 0,
             "pending": None,
             "queue": [],
@@ -374,6 +441,7 @@ class CommunityState:
         if path.exists():
             raw = json.loads(path.read_text(encoding="utf-8"))
             self.data.update(raw)
+        self.data.setdefault("recent_topics", [])
 
     def save(self) -> None:
         self.data["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -408,10 +476,19 @@ class CommunityState:
 
     def already_offered(self, post: dict) -> bool:
         ids = self.offered_ids()
-        if post.get("id") in ids or reddit_id(post.get("url") or "") in ids:
+        return post.get("id") in ids or reddit_id(post.get("url") or "") in ids
+
+    def topic_overused(self, post: dict) -> bool:
+        """Не даём башне/whiwa забить всю ленту: максимум 1 ToA среди последних N."""
+        topic = primary_topic(post)
+        recent = [str(item) for item in (self.data.get("recent_topics") or [])]
+        if topic == "toa":
+            window = recent[-TOA_WINDOW:]
+            if sum(1 for item in window if item == "toa") >= 1:
+                return True
+        if topic == "whiwa" and "whiwa" in recent[-TOA_WINDOW:]:
             return True
-        known = {str(item) for item in self.data.get("topic_keys") or []}
-        return any(key in known for key in post.get("topics") or [])
+        return False
 
     def skip_seen(self, post: dict) -> bool:
         skips = {reddit_id(str(item)) for item in self.data.get("skip_ids") or []}
@@ -433,6 +510,9 @@ class CommunityState:
         ids.add(str(post.get("id") or ""))
         ids.add(reddit_id(post.get("url") or ""))
         self.data["offered_ids"] = sorted(item for item in ids if item)[-300:]
+        recent = [str(item) for item in (self.data.get("recent_topics") or [])]
+        recent.append(primary_topic(post))
+        self.data["recent_topics"] = recent[-20:]
         self.mark_community(post)
 
     def mark_community(self, post: dict | str) -> None:
@@ -444,7 +524,8 @@ class CommunityState:
         else:
             ids.add(str(post.get("id") or ""))
             ids.add(reddit_id(post.get("url") or ""))
-            topics.update(post.get("topics") or [])
+            # в topic_keys кладём только cooldown-семьи, чтобы не блокировать весь фан-арт
+            topics.update(key for key in (post.get("topics") or []) if key in COOLDOWN_TOPICS)
         self.data["community_ids"] = sorted(item for item in ids if item)[-500:]
         self.data["topic_keys"] = sorted(topics)[-200:]
         self.save()
@@ -872,18 +953,49 @@ def offer_post(token: str, admin_id: str, state: CommunityState, post: dict) -> 
     return True
 
 
+def diversity_score(post: dict, state: CommunityState) -> int:
+    topic = primary_topic(post)
+    recent = [str(item) for item in (state.data.get("recent_topics") or [])]
+    score = 0
+    # сильнее любим то, чего давно не было
+    if topic not in recent[-6:]:
+        score += 30
+    if topic not in {"toa", "whiwa"}:
+        score += 20
+    if topic in {"fanart", "cosplay", "lore", "animation", "music", "build", "collection"}:
+        score += 15
+    if topic == "toa":
+        score -= 25
+    if post.get("image"):
+        score += 5
+    return score
+
+
 def find_next(client: httpx.Client, state: CommunityState) -> dict | None:
     posts = fetch_posts(client)
+    candidates: list[dict] = []
     for post in posts:
         if state.already_offered(post) or state.skip_seen(post):
             continue
         post = enrich_post(client, post)
+        if state.already_offered(post) or state.topic_overused(post):
+            continue
         if not is_useful(post):
             state.mark_skip(post)
             logger.info("слабо: %s", post.get("title"))
             continue
-        return post
-    return None
+        candidates.append(post)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: diversity_score(item, state), reverse=True)
+    chosen = candidates[0]
+    logger.info(
+        "выбрал фан-пост [%s] score=%s: %s",
+        primary_topic(chosen),
+        diversity_score(chosen, state),
+        chosen.get("title"),
+    )
+    return chosen
 
 
 def pending_expired(pending: dict) -> bool:

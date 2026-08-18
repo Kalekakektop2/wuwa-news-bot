@@ -161,12 +161,16 @@ COMMUNITY_KEEP = re.compile(
     r"(record|showcase|collection|collect|meta|tier|hologram|tower|"
     r"whimpering|clear|cleared|roster|gallery|speedrun|first clear|"
     r"full team|all resonator|all character|c6|s6|100%|completion|"
-    r"рекорд|коллекц|мет[аы]|башн|голограмм|витрина|собрал)",
+    r"fan\s*art|fanart|cosplay|lore|build|guide|music|animation|clip|"
+    r"exploration|boss|gacha|pull|illustration|"
+    r"рекорд|коллекц|мет[аы]|башн|голограмм|витрина|собрал|"
+    r"фан.?арт|косплей|лор|сборк|гайд|музыка|анимац|клип)",
     re.I,
 )
 COMMUNITY_SKIP = re.compile(
     r"(megathread|giveaway|leak|nsfw|porn|code redeem|looking for|"
-    r"who should i pull|should i pull|wutheringwavesmod)",
+    r"who should i pull|should i pull|wutheringwavesmod|"
+    r"daily questions|weekly questions)",
     re.I,
 )
 
@@ -197,12 +201,27 @@ def parse_reddit_rss(xml_text: str) -> list[dict]:
 
 
 def fetch_community(client: httpx.Client, state: State) -> dict | None:
+    """Берём разнообразие из общего community-поисковика, а не только ToA."""
     used = set(state.data.get("community") or [])
+    try:
+        sys.path.insert(0, str(REPO / "pikabu-bot"))
+        from community import CommunityState, find_next
+
+        pikabu_path = Path(env("PIKABU_STATE") or str(REPO / "state" / "pikabu.json"))
+        community_state = CommunityState(pikabu_path)
+        post = find_next(client, community_state)
+        if post and post.get("url") not in used:
+            community_state.mark_offered(post)
+            return post
+    except Exception as exc:
+        print(f"community shared finder: {exc}", file=sys.stderr)
+
     headers = {
         "user-agent": "wuwa-daily/1.0 (fan news; +https://github.com/Kalekakektop2/wuwa-news-bot)"
     }
     urls = [
-        "https://www.reddit.com/r/WutheringWaves/search.rss?q=showcase+OR+record+OR+collection+OR+meta+OR+hologram+OR+cleared&restrict_sr=1&sort=new",
+        "https://www.reddit.com/r/WutheringWaves/search.rss?q=fanart+OR+cosplay+OR+lore+OR+build+OR+showcase&restrict_sr=1&sort=new",
+        "https://www.reddit.com/r/WutheringWaves/search.rss?q=collection+OR+music+OR+animation+OR+guide+OR+hologram&restrict_sr=1&sort=new",
         "https://www.reddit.com/r/WutheringWaves/top/.rss?t=week",
         "https://www.reddit.com/r/WutheringWaves/.rss",
     ]
@@ -223,8 +242,12 @@ def fetch_community(client: httpx.Client, state: State) -> dict | None:
             continue
         if post["url"] in used:
             continue
-        interesting.append(post)
-    return interesting[0] if interesting else None
+        title_l = post["title"].lower()
+        # башню в fallback кладём в конец
+        rank = 1 if re.search(r"\btoa\b|tower of adversity", title_l) else 0
+        interesting.append((rank, post))
+    interesting.sort(key=lambda item: item[0])
+    return interesting[0][1] if interesting else None
 
 
 def rewrite_community(post: dict) -> str:
