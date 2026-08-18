@@ -1,9 +1,6 @@
 name: wuwa-daily
 on:
-  schedule:
-    - cron: "0 4 * * *"   # 09:00 Екатеринбург
-    - cron: "0 16 * * *"  # 21:00 Екатеринбург
-    - cron: "20 * * * *"
+  # schedules moved to Bucharest VPS — keep manual only to avoid double posts
   workflow_dispatch:
     inputs:
       slot:

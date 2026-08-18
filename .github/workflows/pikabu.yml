@@ -1,7 +1,6 @@
 name: pikabu-dm
 on:
-  schedule:
-    - cron: "*/10 * * * *"
+  # schedules moved to Bucharest VPS — keep manual only to avoid double posts
   workflow_dispatch:
 jobs:
   notify:

@@ -1,7 +1,6 @@
 name: wuwa-poll
 on:
-  schedule:
-    - cron: "*/5 * * * *"
+  # schedules moved to Bucharest VPS — keep manual only to avoid double posts
   workflow_dispatch:
 jobs:
   poll:
